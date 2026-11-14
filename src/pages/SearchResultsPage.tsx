@@ -1,0 +1,595 @@
+import React, { useState, useEffect } from 'react';
+import { useSearchParams, Link, useNavigate } from 'react-router-dom';
+import { 
+  Search, 
+  MapPin, 
+  Navigation, 
+  Phone, 
+  CornerDownRight, 
+  ExternalLink, 
+  Check, 
+  AlertTriangle, 
+  Loader2, 
+  SlidersHorizontal,
+  Layers,
+  ArrowUpDown
+} from 'lucide-react';
+import { api, isListingStale } from '../services/api';
+import { SearchResultItem } from '../types/database';
+import { StatusBadge } from '../components/StatusBadge';
+import { MapWidget, MapMarkerItem } from '../components/MapWidget';
+import { Modal } from '../components/Modal';
+import { useAuth } from '../context/AuthContext';
+
+export const SearchResultsPage: React.FC = () => {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const queryParam = searchParams.get('q') || '';
+  const locParam = searchParams.get('loc') || '';
+  const latParam = searchParams.get('lat');
+  const lngParam = searchParams.get('lng');
+
+  const [query, setQuery] = useState(queryParam);
+  const [location, setLocation] = useState(locParam);
+  const [userLat, setUserLat] = useState<number | undefined>(latParam ? parseFloat(latParam) : undefined);
+  const [userLng, setUserLng] = useState<number | undefined>(lngParam ? parseFloat(lngParam) : undefined);
+
+  const [results, setResults] = useState<SearchResultItem[]>([]);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [inStockOnly, setInStockOnly] = useState<boolean>(false);
+  const [sortBy, setSortBy] = useState<'stock' | 'price' | 'distance'>('stock');
+  const [isCompareView, setIsCompareView] = useState<boolean>(false);
+
+  // Reservation Dialog State
+  const [selectedItemForReservation, setSelectedItemForReservation] = useState<SearchResultItem | null>(null);
+  const [reserveQuantity, setReserveQuantity] = useState<number>(1);
+  const [reserveNotes, setReserveNotes] = useState<string>('');
+  const [isSubmittingReservation, setIsSubmittingReservation] = useState<boolean>(false);
+  const [reservationSuccessMessage, setReservationSuccessMessage] = useState<string | null>(null);
+  const [reservationError, setReservationError] = useState<string | null>(null);
+
+  const { user } = useAuth();
+  const navigate = useNavigate();
+
+  // Load results whenever search params or filters change
+  useEffect(() => {
+    loadResults();
+  }, [searchParams, inStockOnly, sortBy]);
+
+  const loadResults = async () => {
+    setIsLoading(true);
+    try {
+      const data = await api.searchMedicine({
+        query: queryParam,
+        location: locParam === 'Current Location' ? '' : locParam,
+        userLat: userLat,
+        userLng: userLng,
+        inStockOnly: inStockOnly,
+        sortBy: sortBy,
+      });
+      setResults(data);
+    } catch (err) {
+      console.error('Error fetching search results:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleSearchSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const nextParams = new URLSearchParams();
+    if (query.trim()) nextParams.append('q', query.trim());
+    if (location.trim()) nextParams.append('loc', location.trim());
+    if (userLat && userLng) {
+      nextParams.append('lat', userLat.toString());
+      nextParams.append('lng', userLng.toString());
+    }
+    setSearchParams(nextParams);
+  };
+
+  const handleUseLocation = () => {
+    if (!navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setUserLat(pos.coords.latitude);
+        setUserLng(pos.coords.longitude);
+        setLocation('Current Location');
+        const nextParams = new URLSearchParams(searchParams);
+        nextParams.set('lat', pos.coords.latitude.toString());
+        nextParams.set('lng', pos.coords.longitude.toString());
+        nextParams.set('loc', 'Current Location');
+        setSearchParams(nextParams);
+      },
+      (err) => console.warn('Geolocation error:', err)
+    );
+  };
+
+  // Format last updated date human-readable
+  const formatLastUpdated = (isoString: string) => {
+    const diffMs = Date.now() - new Date(isoString).getTime();
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+    if (diffHours < 1) return 'Updated just now';
+    if (diffHours === 1) return 'Updated 1 h ago';
+    if (diffHours < 24) return `Updated ${diffHours} h ago`;
+    if (diffHours < 48) return 'Updated yesterday';
+    return `Updated ${Math.floor(diffHours / 24)} days ago`;
+  };
+
+  // Handle open reservation modal
+  const handleOpenReservation = (item: SearchResultItem) => {
+    if (!user) {
+      navigate('/login?redirect=' + encodeURIComponent(window.location.pathname + window.location.search));
+      return;
+    }
+    setSelectedItemForReservation(item);
+    setReserveQuantity(1);
+    setReserveNotes('');
+    setReservationSuccessMessage(null);
+    setReservationError(null);
+  };
+
+  // Submit reservation
+  const handleConfirmReservation = async () => {
+    if (!selectedItemForReservation || !user) return;
+    if (reserveQuantity < 1) {
+      setReservationError('Please select a valid quantity of at least 1.');
+      return;
+    }
+    if (reserveQuantity > selectedItemForReservation.quantity) {
+      setReservationError(`Only ${selectedItemForReservation.quantity} units are available in stock.`);
+      return;
+    }
+
+    setIsSubmittingReservation(true);
+    setReservationError(null);
+
+    try {
+      const res = await api.createReservation({
+        userId: user.id,
+        pharmacyId: selectedItemForReservation.pharmacy_id,
+        medicineId: selectedItemForReservation.medicine_id,
+        quantity: reserveQuantity,
+        notes: reserveNotes,
+      });
+
+      setReservationSuccessMessage(
+        `Reservation placed successfully! Ref ID: ${res.reservation.id.slice(0, 8)}... The pharmacy has been notified.`
+      );
+      // Reload results to reflect updated stock count
+      await loadResults();
+    } catch (err: any) {
+      setReservationError(err.message || 'Failed to complete reservation.');
+    } finally {
+      setIsSubmittingReservation(false);
+    }
+  };
+
+  // Markers for the map
+  const mapMarkers: MapMarkerItem[] = results.map(r => ({
+    id: r.pharmacy_id,
+    name: r.pharmacy_name,
+    address: r.pharmacy_address,
+    latitude: r.latitude,
+    longitude: r.longitude,
+    price: r.price,
+    status: r.status,
+    isOutdated: isListingStale(r.last_updated),
+  }));
+
+  return (
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+      {/* Top Search Controls Bar (Fig 9.2) */}
+      <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 mb-6">
+        <form onSubmit={handleSearchSubmit} className="flex flex-col md:flex-row gap-3">
+          <div className="flex-1 relative flex items-center">
+            <Search className="w-5 h-5 text-slate-400 absolute left-3.5 pointer-events-none" />
+            <input
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search medicine (e.g. Paracetamol 500 mg)"
+              className="w-full pl-11 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:bg-white transition-all font-medium"
+            />
+          </div>
+
+          <div className="w-full md:w-64 relative flex items-center">
+            <MapPin className="w-5 h-5 text-slate-400 absolute left-3.5 pointer-events-none" />
+            <input
+              type="text"
+              value={location}
+              onChange={(e) => setLocation(e.target.value)}
+              placeholder="Area or pincode (e.g. Dharwad)"
+              className="w-full pl-11 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:bg-white transition-all font-medium"
+            />
+          </div>
+
+          <button
+            type="submit"
+            className="flex items-center justify-center gap-2 px-6 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-xl shadow-sm transition-all text-sm"
+          >
+            <Search className="w-4 h-4" />
+            Search
+          </button>
+        </form>
+
+        <div className="mt-2.5 flex items-center gap-2 text-xs">
+          <button
+            type="button"
+            onClick={handleUseLocation}
+            className="flex items-center gap-1 text-emerald-700 hover:text-emerald-800 font-semibold"
+          >
+            <Navigation className="w-3.5 h-3.5" />
+            Use my current location
+          </button>
+        </div>
+      </div>
+
+      {/* Results Header & Filter Bar */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-200 mb-6 gap-4">
+        <div>
+          <h2 className="text-xl font-bold text-slate-900">
+            {isLoading ? (
+              'Searching nearby pharmacies...'
+            ) : results.length > 0 ? (
+              `${results.length} listing${results.length === 1 ? '' : 's'} for '${queryParam || 'All Medicines'}'`
+            ) : (
+              `0 listings found`
+            )}
+          </h2>
+          {locParam && (
+            <p className="text-xs text-slate-500 mt-0.5 flex items-center gap-1">
+              <MapPin className="w-3.5 h-3.5 text-emerald-600" />
+              Showing results near <span className="font-semibold text-slate-700">{locParam}</span>
+            </p>
+          )}
+        </div>
+
+        {/* Filter and Sort Controls */}
+        <div className="flex flex-wrap items-center gap-3 text-xs">
+          <label className="flex items-center gap-1.5 cursor-pointer font-medium text-slate-700 select-none bg-white px-3 py-1.5 rounded-lg border border-slate-200 hover:border-slate-300">
+            <input
+              type="checkbox"
+              checked={inStockOnly}
+              onChange={(e) => setInStockOnly(e.target.checked)}
+              className="rounded text-emerald-600 focus:ring-emerald-500 w-3.5 h-3.5"
+            />
+            In stock only
+          </label>
+
+          <div className="flex items-center gap-1 bg-white px-3 py-1.5 rounded-lg border border-slate-200">
+            <ArrowUpDown className="w-3.5 h-3.5 text-slate-400" />
+            <span className="text-slate-500">Sort:</span>
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as any)}
+              className="bg-transparent font-semibold text-slate-800 focus:outline-none cursor-pointer"
+            >
+              <option value="stock">Most stock</option>
+              <option value="price">Lowest price</option>
+              {userLat && <option value="distance">Nearest distance</option>}
+            </select>
+          </div>
+
+          <button
+            onClick={() => setIsCompareView(!isCompareView)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border font-semibold transition-colors ${
+              isCompareView 
+                ? 'bg-emerald-700 text-white border-emerald-700' 
+                : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+            }`}
+          >
+            <Layers className="w-3.5 h-3.5" />
+            {isCompareView ? 'Standard View' : 'Compare View'}
+          </button>
+        </div>
+      </div>
+
+      {/* Main Content Area */}
+      {isLoading ? (
+        <div className="flex flex-col items-center justify-center py-20 text-slate-400">
+          <Loader2 className="w-10 h-10 animate-spin text-emerald-600 mb-3" />
+          <p className="text-sm font-medium">Checking live pharmacy inventories...</p>
+        </div>
+      ) : results.length === 0 ? (
+        /* EXACT FIG 9.3: NO RESULTS SCREEN */
+        <div className="max-w-2xl mx-auto my-12 bg-white rounded-2xl p-8 sm:p-12 shadow-sm border border-slate-200 text-center">
+          <div className="w-20 h-20 rounded-full bg-emerald-50 border-2 border-emerald-100 flex items-center justify-center mx-auto mb-6 text-emerald-700">
+            <Search className="w-10 h-10" />
+          </div>
+
+          <h3 className="text-2xl font-bold text-slate-900 mb-4">
+            No pharmacy reports '{queryParam || 'this item'}'
+          </h3>
+
+          <div className="text-left max-w-md mx-auto text-sm text-slate-600 space-y-2 mb-8">
+            <div className="flex items-start gap-2">
+              <span className="w-2 h-2 rounded-full bg-emerald-600 mt-1.5 shrink-0" />
+              <span>Check the spelling of the medicine.</span>
+            </div>
+            <div className="flex items-start gap-2">
+              <span className="w-2 h-2 rounded-full bg-emerald-600 mt-1.5 shrink-0" />
+              <span>Try the generic composition name instead of a brand.</span>
+            </div>
+            <div className="flex items-start gap-2">
+              <span className="w-2 h-2 rounded-full bg-emerald-600 mt-1.5 shrink-0" />
+              <span>Widen the search area or call pharmacies directly.</span>
+            </div>
+          </div>
+
+          <button
+            onClick={() => {
+              setQuery('');
+              setLocation('');
+              navigate('/search');
+            }}
+            className="px-6 py-3 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-xl shadow-md transition-colors text-sm"
+          >
+            Try another search
+          </button>
+        </div>
+      ) : isCompareView ? (
+        /* Compare Table View (SRS FR-05) */
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden mb-12">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold text-xs uppercase tracking-wider">
+                <tr>
+                  <th className="p-4">Pharmacy</th>
+                  <th className="p-4">Medicine & Form</th>
+                  <th className="p-4">Availability</th>
+                  <th className="p-4">Listed Price</th>
+                  <th className="p-4">Distance</th>
+                  <th className="p-4">Last Updated</th>
+                  <th className="p-4 text-right">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {results.map((item) => (
+                  <tr key={item.inventory_id} className="hover:bg-slate-50/80 transition-colors">
+                    <td className="p-4">
+                      <div className="font-bold text-slate-900">{item.pharmacy_name}</div>
+                      <div className="text-xs text-slate-500">{item.pharmacy_address}</div>
+                    </td>
+                    <td className="p-4">
+                      <div className="font-semibold text-slate-800">{item.medicine_name}</div>
+                      <div className="text-xs text-slate-500">{item.strength_form} • {item.generic_name}</div>
+                    </td>
+                    <td className="p-4">
+                      <StatusBadge 
+                        type="stock" 
+                        status={item.status} 
+                        isStale={isListingStale(item.last_updated)} 
+                      />
+                      <div className="text-[11px] text-slate-500 mt-1">{item.quantity} units</div>
+                    </td>
+                    <td className="p-4">
+                      <span className="text-base font-bold text-slate-900">₹{item.price}</span>
+                    </td>
+                    <td className="p-4 text-xs font-medium text-slate-600">
+                      {item.distance_km !== null && item.distance_km !== undefined ? `${item.distance_km} km` : '—'}
+                    </td>
+                    <td className="p-4 text-xs text-slate-500">
+                      {formatLastUpdated(item.last_updated)}
+                    </td>
+                    <td className="p-4 text-right">
+                      <button
+                        onClick={() => handleOpenReservation(item)}
+                        disabled={item.quantity <= 0}
+                        className="px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg text-xs font-bold transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        Reserve
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : (
+        /* Split View: Pharmacy Cards on Left, Leaflet Map on Right (Fig 9.2) */
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 mb-12">
+          {/* Left Column: Pharmacy Listing Cards */}
+          <div className="lg:col-span-7 space-y-4">
+            {results.map((item) => {
+              const isStale = isListingStale(item.last_updated);
+              return (
+                <div
+                  key={item.inventory_id}
+                  className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 hover:border-emerald-300 transition-all"
+                >
+                  <div className="flex justify-between items-start gap-4">
+                    <div>
+                      <h3 className="text-lg font-bold text-slate-900">{item.medicine_name}</h3>
+                      <p className="text-sm font-semibold text-emerald-800 mt-0.5">{item.pharmacy_name}</p>
+                      <p className="text-xs text-slate-500 flex items-center gap-1 mt-1">
+                        <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                        {item.pharmacy_address}, {item.city} - {item.pin_code}
+                      </p>
+                      {item.distance_km !== null && item.distance_km !== undefined && (
+                        <p className="text-xs font-semibold text-blue-600 mt-0.5">
+                          ~ {item.distance_km} km away
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="text-right shrink-0">
+                      <div className="text-2xl font-black text-slate-900">₹{item.price}</div>
+                      <div className="text-xs text-slate-400 mt-1">
+                        {formatLastUpdated(item.last_updated)}
+                      </div>
+                      <div className="mt-2">
+                        <StatusBadge type="stock" status={item.status} isStale={isStale} />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Actions Button Strip */}
+                  <div className="mt-5 pt-4 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <a
+                        href={`tel:${item.mobile_number}`}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50 text-xs font-semibold transition-colors"
+                      >
+                        <Phone className="w-3.5 h-3.5 text-emerald-600" />
+                        Call
+                      </a>
+                      <a
+                        href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+                          item.pharmacy_name + ' ' + item.pharmacy_address
+                        )}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50 text-xs font-semibold transition-colors"
+                      >
+                        <CornerDownRight className="w-3.5 h-3.5 text-emerald-600" />
+                        Directions
+                      </a>
+                      <Link
+                        to={`/pharmacy/${item.pharmacy_id}`}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50 text-xs font-semibold transition-colors"
+                      >
+                        View details
+                      </Link>
+                    </div>
+
+                    <button
+                      onClick={() => handleOpenReservation(item)}
+                      disabled={item.quantity <= 0}
+                      className="px-5 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg text-xs font-bold shadow-sm transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      Reserve
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Right Column: Interactive Map */}
+          <div className="lg:col-span-5 sticky top-20 h-[550px]">
+            <MapWidget
+              markers={mapMarkers}
+              userLocation={userLat && userLng ? { lat: userLat, lng: userLng } : null}
+              className="h-full w-full rounded-2xl shadow-sm border border-slate-200 overflow-hidden"
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Reservation Confirmation Modal */}
+      <Modal
+        isOpen={Boolean(selectedItemForReservation)}
+        onClose={() => setSelectedItemForReservation(null)}
+        title="Reserve Medicine for Counter Pickup"
+      >
+        {selectedItemForReservation && (
+          <div className="space-y-4">
+            {reservationSuccessMessage ? (
+              <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl text-center space-y-3">
+                <div className="w-10 h-10 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center mx-auto">
+                  <Check className="w-6 h-6" />
+                </div>
+                <h4 className="font-bold text-emerald-900 text-base">Reservation Confirmed!</h4>
+                <p className="text-xs text-emerald-800">{reservationSuccessMessage}</p>
+                <div className="pt-2 flex justify-center gap-3">
+                  <button
+                    onClick={() => navigate('/customer/reservations')}
+                    className="px-4 py-2 bg-emerald-700 text-white rounded-lg text-xs font-bold hover:bg-emerald-800 transition-colors"
+                  >
+                    View My Reservations
+                  </button>
+                  <button
+                    onClick={() => setSelectedItemForReservation(null)}
+                    className="px-4 py-2 border border-slate-300 text-slate-700 rounded-lg text-xs font-semibold hover:bg-slate-50 transition-colors"
+                  >
+                    Done
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs space-y-1">
+                  <div className="font-bold text-slate-900 text-sm">{selectedItemForReservation.medicine_name}</div>
+                  <div className="text-slate-600">{selectedItemForReservation.pharmacy_name}</div>
+                  <div className="text-slate-500">{selectedItemForReservation.pharmacy_address}</div>
+                  <div className="text-emerald-700 font-bold mt-1">
+                    Listed Price: ₹{selectedItemForReservation.price} per unit
+                  </div>
+                  <div className="text-slate-500">
+                    Currently available in stock: {selectedItemForReservation.quantity} units
+                  </div>
+                </div>
+
+                {reservationError && (
+                  <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 flex items-center gap-2">
+                    <AlertTriangle className="w-4 h-4 shrink-0" />
+                    <span>{reservationError}</span>
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Quantity to Reserve *
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    max={selectedItemForReservation.quantity}
+                    value={reserveQuantity}
+                    onChange={(e) => setReserveQuantity(parseInt(e.target.value) || 1)}
+                    className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-600"
+                  />
+                  <span className="text-[11px] text-slate-500 mt-1 block">
+                    Total Estimated Amount: ₹{(selectedItemForReservation.price * reserveQuantity).toFixed(2)}
+                  </span>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Pickup Notes (Optional)
+                  </label>
+                  <textarea
+                    rows={2}
+                    value={reserveNotes}
+                    onChange={(e) => setReserveNotes(e.target.value)}
+                    placeholder="e.g. Arriving between 5 PM and 6 PM"
+                    className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-emerald-600"
+                  />
+                </div>
+
+                <div className="p-3 bg-amber-50 rounded-lg border border-amber-200 text-[11px] text-amber-800 leading-relaxed">
+                  <strong>Pickup Policy:</strong> Medicine reservations are held at the pharmacy counter for pickup. Valid prescription must be presented if required by pharmaceutical regulations. Payment is settled upon physical collection.
+                </div>
+
+                <div className="pt-3 flex justify-end gap-3 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedItemForReservation(null)}
+                    className="px-4 py-2 border border-slate-300 text-slate-700 rounded-lg text-xs font-semibold hover:bg-slate-50 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleConfirmReservation}
+                    disabled={isSubmittingReservation || selectedItemForReservation.quantity <= 0}
+                    className="flex items-center gap-1.5 px-5 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg text-xs font-bold transition-colors disabled:opacity-50"
+                  >
+                    {isSubmittingReservation ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        Reserving...
+                      </>
+                    ) : (
+                      'Confirm Reservation'
+                    )}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+      </Modal>
+    </div>
+  );
+};
