@@ -52,10 +52,33 @@ export const SearchResultsPage: React.FC = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
 
-  // Load results whenever search params or filters change
+  // Auto-detect customer's live geolocation on mount if not already in URL
+  useEffect(() => {
+    if (!latParam || !lngParam) {
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+          (pos) => {
+            setUserLat(pos.coords.latitude);
+            setUserLng(pos.coords.longitude);
+          },
+          (err) => {
+            console.warn('Geolocation fallback to Dharwad reference:', err);
+            setUserLat(15.4520);
+            setUserLng(75.0110);
+          },
+          { enableHighAccuracy: true, timeout: 5000 }
+        );
+      } else {
+        setUserLat(15.4520);
+        setUserLng(75.0110);
+      }
+    }
+  }, []);
+
+  // Load results whenever search params, filters, or user location change
   useEffect(() => {
     loadResults();
-  }, [searchParams, inStockOnly, sortBy]);
+  }, [searchParams, inStockOnly, sortBy, userLat, userLng]);
 
   const loadResults = async () => {
     setIsLoading(true);
@@ -267,7 +290,7 @@ export const SearchResultsPage: React.FC = () => {
             >
               <option value="stock">Most stock</option>
               <option value="price">Lowest price</option>
-              {userLat && <option value="distance">Nearest distance</option>}
+              <option value="distance">Nearest distance</option>
             </select>
           </div>
 
@@ -366,8 +389,13 @@ export const SearchResultsPage: React.FC = () => {
                     <td className="p-4">
                       <span className="text-base font-bold text-slate-900">₹{item.price}</span>
                     </td>
-                    <td className="p-4 text-xs font-medium text-slate-600">
-                      {item.distance_km !== null && item.distance_km !== undefined ? `${item.distance_km} km` : '—'}
+                    <td className="p-4 text-xs font-bold text-blue-700 whitespace-nowrap">
+                      {item.distance_km !== null && item.distance_km !== undefined ? (
+                        <span className="inline-flex items-center gap-1">
+                          <Navigation className="w-3 h-3 text-blue-600" />
+                          {item.distance_km} km
+                        </span>
+                      ) : '—'}
                     </td>
                     <td className="p-4 text-xs text-slate-500">
                       {formatLastUpdated(item.last_updated)}
@@ -401,17 +429,20 @@ export const SearchResultsPage: React.FC = () => {
                 >
                   <div className="flex justify-between items-start gap-4">
                     <div>
-                      <h3 className="text-lg font-bold text-slate-900">{item.medicine_name}</h3>
-                      <p className="text-sm font-semibold text-emerald-800 mt-0.5">{item.pharmacy_name}</p>
+                      <div className="flex flex-wrap items-center gap-2 mb-1">
+                        <h3 className="text-lg font-bold text-slate-900">{item.medicine_name}</h3>
+                        {item.distance_km !== null && item.distance_km !== undefined && (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-50 text-blue-700 border border-blue-200 shadow-2xs">
+                            <Navigation className="w-3 h-3 text-blue-600" />
+                            {item.distance_km} km away
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-sm font-semibold text-emerald-800">{item.pharmacy_name}</p>
                       <p className="text-xs text-slate-500 flex items-center gap-1 mt-1">
                         <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                         {item.pharmacy_address}, {item.city} - {item.pin_code}
                       </p>
-                      {item.distance_km !== null && item.distance_km !== undefined && (
-                        <p className="text-xs font-semibold text-blue-600 mt-0.5">
-                          ~ {item.distance_km} km away
-                        </p>
-                      )}
                     </div>
 
                     <div className="text-right shrink-0">

@@ -11,7 +11,7 @@ import {
   Check, 
   AlertTriangle 
 } from 'lucide-react';
-import { api, isListingStale } from '../services/api';
+import { api, isListingStale, calculateDistanceKm } from '../services/api';
 import { Pharmacy, InventoryItem } from '../types/database';
 import { StatusBadge } from '../components/StatusBadge';
 import { MapWidget } from '../components/MapWidget';
@@ -19,7 +19,7 @@ import { Modal } from '../components/Modal';
 import { CallPharmacyModal } from '../components/CallPharmacyModal';
 import { EditPharmacyModal } from '../components/EditPharmacyModal';
 import { useAuth } from '../context/AuthContext';
-import { Edit3 } from 'lucide-react';
+import { Edit3, Navigation } from 'lucide-react';
 
 export const PharmacyDetailsPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -28,6 +28,19 @@ export const PharmacyDetailsPage: React.FC = () => {
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isCallModalOpen, setIsCallModalOpen] = useState<boolean>(false);
   const [isEditPharmModalOpen, setIsEditPharmModalOpen] = useState<boolean>(false);
+  const [userCoords, setUserCoords] = useState<{ lat: number; lng: number } | null>(null);
+
+  useEffect(() => {
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => setUserCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+        () => setUserCoords({ lat: 15.4520, lng: 75.0110 }),
+        { timeout: 5000 }
+      );
+    } else {
+      setUserCoords({ lat: 15.4520, lng: 75.0110 });
+    }
+  }, []);
 
   // Reservation dialog
   const [selectedItem, setSelectedItem] = useState<InventoryItem | null>(null);
@@ -170,9 +183,18 @@ export const PharmacyDetailsPage: React.FC = () => {
               )}
             </div>
 
-            <p className="text-xs text-slate-500 font-semibold mb-3">
+            <p className="text-xs text-slate-500 font-semibold mb-2">
               Licence No: {pharmacy.licence_number}
             </p>
+
+            {userCoords && (
+              <div className="mb-4">
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-blue-50 text-blue-700 border border-blue-200 shadow-2xs">
+                  <Navigation className="w-3.5 h-3.5 text-blue-600" />
+                  {calculateDistanceKm(userCoords.lat, userCoords.lng, pharmacy.latitude, pharmacy.longitude)} km from your current location
+                </span>
+              </div>
+            )}
 
             <div className="space-y-2 text-xs text-slate-600 mb-6">
               <div className="flex items-center gap-2">

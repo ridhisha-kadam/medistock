@@ -1052,12 +1052,31 @@ export const api = {
       }
 
       let distanceKm: number | null = null;
-      if (params.userLat && params.userLng && pharmacy.latitude && pharmacy.longitude) {
+      // Determine effective user location for calculating distance (FR-03, FR-05)
+      let effUserLat = params.userLat;
+      let effUserLng = params.userLng;
+
+      if (!effUserLat || !effUserLng) {
+        if (params.location?.trim()) {
+          const locCoords = getCoordinatesForLocation(params.location, params.location);
+          effUserLat = locCoords.lat;
+          effUserLng = locCoords.lng;
+        } else {
+          // Default reference: SDMCET Dharwad campus (15.4520, 75.0110)
+          effUserLat = 15.4520;
+          effUserLng = 75.0110;
+        }
+      }
+
+      const pharmLat = pharmacy.latitude || getCoordinatesForLocation(pharmacy.city, pharmacy.pin_code).lat;
+      const pharmLng = pharmacy.longitude || getCoordinatesForLocation(pharmacy.city, pharmacy.pin_code).lng;
+
+      if (effUserLat && effUserLng && pharmLat && pharmLng) {
         distanceKm = calculateDistanceKm(
-          params.userLat,
-          params.userLng,
-          pharmacy.latitude,
-          pharmacy.longitude
+          effUserLat,
+          effUserLng,
+          pharmLat,
+          pharmLng
         );
       }
 
