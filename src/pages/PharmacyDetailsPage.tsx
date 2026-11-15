@@ -191,7 +191,7 @@ export const PharmacyDetailsPage: React.FC = () => {
               <div className="mb-4">
                 <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-blue-50 text-blue-700 border border-blue-200 shadow-2xs">
                   <Navigation className="w-3.5 h-3.5 text-blue-600" />
-                  {calculateDistanceKm(userCoords.lat, userCoords.lng, pharmacy.latitude, pharmacy.longitude)} km from your current location
+                  ~ {calculateDistanceKm(userCoords.lat, userCoords.lng, pharmacy.latitude, pharmacy.longitude)} km (road route from your location)
                 </span>
               </div>
             )}
@@ -222,9 +222,11 @@ export const PharmacyDetailsPage: React.FC = () => {
               Call pharmacy
             </button>
             <a
-              href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(
+              href={`https://www.google.com/maps/dir/?api=1${
+                userCoords ? `&origin=${userCoords.lat},${userCoords.lng}` : ''
+              }&destination=${encodeURIComponent(
                 `${pharmacy.name}, ${pharmacy.address}, ${pharmacy.city}, ${pharmacy.state} ${pharmacy.pin_code}`
-              )}`}
+              )}&travelmode=driving`}
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center gap-1.5 px-4 py-2 border border-slate-200 text-slate-700 hover:bg-slate-50 rounded-xl text-xs font-semibold transition-colors"

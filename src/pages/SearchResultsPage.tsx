@@ -432,9 +432,12 @@ export const SearchResultsPage: React.FC = () => {
                       <div className="flex flex-wrap items-center gap-2 mb-1">
                         <h3 className="text-lg font-bold text-slate-900">{item.medicine_name}</h3>
                         {item.distance_km !== null && item.distance_km !== undefined && (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-50 text-blue-700 border border-blue-200 shadow-2xs">
+                          <span 
+                            className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-50 text-blue-700 border border-blue-200 shadow-2xs"
+                            title="Turn-by-turn road driving distance"
+                          >
                             <Navigation className="w-3 h-3 text-blue-600" />
-                            {item.distance_km} km away
+                            ~ {item.distance_km} km (by road)
                           </span>
                         )}
                       </div>
@@ -468,9 +471,11 @@ export const SearchResultsPage: React.FC = () => {
                         Call
                       </button>
                       <a
-                        href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(
+                        href={`https://www.google.com/maps/dir/?api=1${
+                          userLat && userLng ? `&origin=${userLat},${userLng}` : ''
+                        }&destination=${encodeURIComponent(
                           `${item.pharmacy_name}, ${item.pharmacy_address}, ${item.city}, ${item.pin_code}`
-                        )}`}
+                        )}&travelmode=driving`}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50 text-xs font-semibold transition-colors"

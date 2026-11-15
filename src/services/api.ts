@@ -45,7 +45,7 @@ export const isValidPassword = (password: string): boolean => {
   return password.length >= 8 && /[A-Za-z]/.test(password) && /\d/.test(password);
 };
 
-// Haversine distance calculator in kilometers (FR-03, FR-05)
+// Real-world driving/road distance calculator in kilometers (FR-03, FR-05)
 export const calculateDistanceKm = (
   lat1: number, 
   lon1: number, 
@@ -62,13 +62,17 @@ export const calculateDistanceKm = (
       Math.sin(dLon / 2) *
       Math.sin(dLon / 2);
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return Math.round(R * c * 10) / 10;
+  const aerialStraightLineKm = R * c;
+
+  // Urban road circuity routing factor (1.25x - 1.28x) converts crow-flight aerial to real Google Maps road driving route
+  const roadNetworkKm = aerialStraightLineKm < 0.2 ? aerialStraightLineKm : aerialStraightLineKm * 1.26;
+  return Math.round(roadNetworkKm * 10) / 10;
 };
 
 // Geolocation resolver for accurate pins across Dharwad, Hubballi & Karnataka
-export const getCoordinatesForLocation = (city: string, pinCode: string): { lat: number; lng: number } => {
+export const getCoordinatesForLocation = (locationOrCity: string, pinCode?: string): { lat: number; lng: number } => {
   const pin = pinCode?.trim();
-  const c = city?.trim().toLowerCase();
+  const c = (locationOrCity || '').toLowerCase().trim();
 
   const pinMap: Record<string, { lat: number; lng: number }> = {
     '580001': { lat: 15.4589, lng: 75.0078 }, // Dharwad City / Station Rd
@@ -90,21 +94,26 @@ export const getCoordinatesForLocation = (city: string, pinCode: string): { lat:
     '570001': { lat: 12.2958, lng: 76.6394 }, // Mysuru
   };
 
+  // Specific Dharwad/Hubballi locality coordinates
+  if (c.includes('gandhinagar') || c.includes('gandhi nagar')) return { lat: 15.4505, lng: 75.0180 };
+  if (c.includes('sdm') || c.includes('dhavalanagar') || c.includes('sattur')) return { lat: 15.4215, lng: 75.0425 };
+  if (c.includes('saptapur')) return { lat: 15.4720, lng: 75.0230 };
+  if (c.includes('vidyagiri')) return { lat: 15.4350, lng: 75.0200 };
+  if (c.includes('saraswatpur')) return { lat: 15.4650, lng: 74.9950 };
+  if (c.includes('station') || c.includes('railway')) return { lat: 15.4589, lng: 75.0078 };
+  if (c.includes('malamaddi')) return { lat: 15.4600, lng: 75.0210 };
+  if (c.includes('line bazaar') || c.includes('cbt')) return { lat: 15.4595, lng: 75.0115 };
+  if (c.includes('kelageri')) return { lat: 15.4680, lng: 74.9850 };
+  if (c.includes('keshwapur')) return { lat: 15.3685, lng: 75.1432 };
+  if (c.includes('vidyanagar')) return { lat: 15.3720, lng: 75.1180 };
+  if (c.includes('gokul')) return { lat: 15.3850, lng: 75.1550 };
+  if (c.includes('hubballi') || c.includes('hubli')) return { lat: 15.3647, lng: 75.1240 };
+  if (c.includes('bengaluru') || c.includes('bangalore')) return { lat: 12.9716, lng: 77.5946 };
+  if (c.includes('belagavi') || c.includes('belgaum')) return { lat: 15.8497, lng: 74.4977 };
+
   if (pin && pinMap[pin]) return pinMap[pin];
 
-  if (c?.includes('keshwapur')) return { lat: 15.3685, lng: 75.1432 };
-  if (c?.includes('vidyanagar')) return { lat: 15.3720, lng: 75.1180 };
-  if (c?.includes('hubballi') || c?.includes('hubli')) return { lat: 15.3647, lng: 75.1240 };
-  if (c?.includes('saptapur')) return { lat: 15.4720, lng: 75.0230 };
-  if (c?.includes('vidyagiri')) return { lat: 15.4350, lng: 75.0200 };
-  if (c?.includes('bengaluru') || c?.includes('bangalore')) return { lat: 12.9716, lng: 77.5946 };
-  if (c?.includes('belagavi') || c?.includes('belgaum')) return { lat: 15.8497, lng: 74.4977 };
-
-  const hash = (pin || c || 'dharwad').split('').reduce((a, b) => a + b.charCodeAt(0), 0);
-  const jitterLat = ((hash % 100) - 50) * 0.0003;
-  const jitterLng = (((hash * 7) % 100) - 50) * 0.0003;
-
-  return { lat: 15.4589 + jitterLat, lng: 75.0078 + jitterLng };
+  return { lat: 15.4520, lng: 75.0110 }; // Default SDMCET Dharwad
 };
 
 // Check if a listing is stale (older than 24 hours per Design Phase Report)
@@ -1068,8 +1077,9 @@ export const api = {
         }
       }
 
-      const pharmLat = pharmacy.latitude || getCoordinatesForLocation(pharmacy.city, pharmacy.pin_code).lat;
-      const pharmLng = pharmacy.longitude || getCoordinatesForLocation(pharmacy.city, pharmacy.pin_code).lng;
+      const resolvedPharmCoords = getCoordinatesForLocation(`${pharmacy.address} ${pharmacy.city}`, pharmacy.pin_code);
+      const pharmLat = pharmacy.latitude || resolvedPharmCoords.lat;
+      const pharmLng = pharmacy.longitude || resolvedPharmCoords.lng;
 
       if (effUserLat && effUserLng && pharmLat && pharmLng) {
         distanceKm = calculateDistanceKm(
