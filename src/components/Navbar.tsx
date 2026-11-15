@@ -1,12 +1,14 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { LogOut, User, Store, ShieldCheck, Search, ShoppingBag } from 'lucide-react';
+import { LogOut, User, Store, ShieldCheck, Search, ShoppingBag, Edit2 } from 'lucide-react';
+import { EditCustomerProfileModal } from './EditCustomerProfileModal';
 
 export const Navbar: React.FC = () => {
   const { user, pharmacy, isCustomer, isPharmacy, isAdmin, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
 
   const handleLogout = () => {
     logout();
@@ -84,13 +86,27 @@ export const Navbar: React.FC = () => {
         {/* Right Authentication Controls */}
         <div className="flex items-center gap-3">
           {user ? (
-            <div className="flex items-center gap-3">
-              <div className="hidden sm:flex flex-col text-right">
-                <span className="text-xs font-bold text-slate-800">{user.full_name}</span>
-                <span className="text-[10px] text-slate-500 uppercase tracking-wider font-semibold">
-                  {user.role}
-                </span>
-              </div>
+            <div className="flex items-center gap-2 sm:gap-3">
+              {/* Clickable Profile Pill */}
+              <button
+                type="button"
+                onClick={() => setIsProfileModalOpen(true)}
+                className="flex items-center gap-2 px-2.5 py-1.5 rounded-xl border border-slate-200 hover:border-emerald-300 hover:bg-emerald-50/60 transition-all text-left group"
+                title="Click to view and edit profile details"
+              >
+                <div className="w-7 h-7 rounded-lg bg-emerald-100 group-hover:bg-emerald-600 group-hover:text-white text-emerald-800 flex items-center justify-center font-bold text-xs transition-colors">
+                  {user.full_name?.charAt(0)?.toUpperCase() || 'U'}
+                </div>
+                <div className="hidden sm:flex flex-col text-left">
+                  <span className="text-xs font-bold text-slate-800 group-hover:text-emerald-800 transition-colors flex items-center gap-1">
+                    {user.full_name}
+                    <Edit2 className="w-3 h-3 text-slate-400 group-hover:text-emerald-600 opacity-60 group-hover:opacity-100" />
+                  </span>
+                  <span className="text-[10px] text-slate-500 uppercase tracking-wider font-semibold">
+                    {user.role}
+                  </span>
+                </div>
+              </button>
 
               {isAdmin && (
                 <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
@@ -125,6 +141,12 @@ export const Navbar: React.FC = () => {
           )}
         </div>
       </div>
+
+      {/* Edit Customer / User Profile Modal */}
+      <EditCustomerProfileModal
+        isOpen={isProfileModalOpen}
+        onClose={() => setIsProfileModalOpen(false)}
+      />
     </header>
   );
 };

@@ -5,6 +5,7 @@ import { api } from '../services/api';
 import { Reservation, Bill } from '../types/database';
 import { StatusBadge } from '../components/StatusBadge';
 import { InvoiceModal } from '../components/InvoiceModal';
+import { EditCustomerProfileModal } from '../components/EditCustomerProfileModal';
 import { 
   ShoppingBag, 
   Clock, 
@@ -13,7 +14,9 @@ import {
   Ban, 
   Printer, 
   Loader2, 
-  ArrowLeft 
+  ArrowLeft,
+  Edit3,
+  User
 } from 'lucide-react';
 
 export const CustomerReservationsPage: React.FC = () => {
@@ -24,6 +27,7 @@ export const CustomerReservationsPage: React.FC = () => {
   const [bills, setBills] = useState<Bill[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [selectedBill, setSelectedBill] = useState<Bill | null>(null);
+  const [isEditProfileOpen, setIsEditProfileOpen] = useState<boolean>(false);
 
   useEffect(() => {
     if (!user) {
@@ -105,6 +109,40 @@ export const CustomerReservationsPage: React.FC = () => {
         </Link>
       </div>
 
+      {/* Customer Account Details Card with 1-Click Edit */}
+      {user && (
+        <div className="bg-gradient-to-r from-emerald-50/60 via-white to-slate-50 border border-emerald-200/80 rounded-2xl p-5 mb-8 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-3.5">
+            <div className="w-12 h-12 rounded-xl bg-emerald-700 text-white flex items-center justify-center font-black text-xl shadow-sm shrink-0">
+              {user.full_name?.charAt(0)?.toUpperCase() || 'C'}
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="font-bold text-slate-900 text-base">{user.full_name}</h3>
+                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                  {user.role}
+                </span>
+              </div>
+              <p className="text-xs text-slate-500 mt-0.5">
+                {user.email} • +91 {user.mobile_number}
+              </p>
+              <p className="text-xs text-slate-500 flex items-center gap-1 mt-0.5">
+                <MapPin className="w-3.5 h-3.5 text-emerald-600" />
+                {user.city}, {user.state} {user.pin_code && `— ${user.pin_code}`}
+              </p>
+            </div>
+          </div>
+
+          <button
+            onClick={() => setIsEditProfileOpen(true)}
+            className="flex items-center gap-1.5 px-4 py-2 bg-white hover:bg-emerald-50 border border-emerald-300 text-emerald-800 rounded-xl text-xs font-bold transition-all shadow-sm"
+          >
+            <Edit3 className="w-3.5 h-3.5 text-emerald-600" />
+            Edit Profile Details
+          </button>
+        </div>
+      )}
+
       {reservations.length === 0 ? (
         /* Empty State per Section 4 */
         <div className="bg-white rounded-2xl p-12 text-center border border-slate-200 shadow-sm max-w-xl mx-auto my-8">
@@ -182,6 +220,12 @@ export const CustomerReservationsPage: React.FC = () => {
         isOpen={Boolean(selectedBill)}
         onClose={() => setSelectedBill(null)}
         bill={selectedBill}
+      />
+
+      {/* Edit Customer Profile Modal */}
+      <EditCustomerProfileModal
+        isOpen={isEditProfileOpen}
+        onClose={() => setIsEditProfileOpen(false)}
       />
     </div>
   );

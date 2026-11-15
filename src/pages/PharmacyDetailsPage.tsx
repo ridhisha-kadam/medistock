@@ -17,7 +17,9 @@ import { StatusBadge } from '../components/StatusBadge';
 import { MapWidget } from '../components/MapWidget';
 import { Modal } from '../components/Modal';
 import { CallPharmacyModal } from '../components/CallPharmacyModal';
+import { EditPharmacyModal } from '../components/EditPharmacyModal';
 import { useAuth } from '../context/AuthContext';
+import { Edit3 } from 'lucide-react';
 
 export const PharmacyDetailsPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -25,6 +27,7 @@ export const PharmacyDetailsPage: React.FC = () => {
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isCallModalOpen, setIsCallModalOpen] = useState<boolean>(false);
+  const [isEditPharmModalOpen, setIsEditPharmModalOpen] = useState<boolean>(false);
 
   // Reservation dialog
   const [selectedItem, setSelectedItem] = useState<InventoryItem | null>(null);
@@ -207,6 +210,17 @@ export const PharmacyDetailsPage: React.FC = () => {
               <CornerDownRight className="w-3.5 h-3.5 text-emerald-600" />
               Directions
             </a>
+
+            {(user && (user.id === pharmacy.owner_user_id || user.role === 'ADMIN')) && (
+              <button
+                type="button"
+                onClick={() => setIsEditPharmModalOpen(true)}
+                className="flex items-center gap-1.5 px-4 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 rounded-xl text-xs font-bold transition-colors"
+              >
+                <Edit3 className="w-3.5 h-3.5 text-emerald-700" />
+                Edit Details
+              </button>
+            )}
           </div>
         </div>
 
@@ -422,6 +436,19 @@ export const PharmacyDetailsPage: React.FC = () => {
           onClose={() => setIsCallModalOpen(false)}
           pharmacyName={pharmacy.name}
           phoneNumber={pharmacy.mobile_number}
+        />
+      )}
+
+      {/* Edit Pharmacy Details Modal */}
+      {pharmacy && (
+        <EditPharmacyModal
+          isOpen={isEditPharmModalOpen}
+          onClose={() => setIsEditPharmModalOpen(false)}
+          pharmacy={pharmacy}
+          onSuccess={(updated) => {
+            setPharmacy(updated);
+            if (id) loadPharmacyDetails(id);
+          }}
         />
       )}
     </div>

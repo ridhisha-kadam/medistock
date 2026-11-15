@@ -14,6 +14,7 @@ import {
 import { StatusBadge } from '../components/StatusBadge';
 import { InvoiceModal } from '../components/InvoiceModal';
 import { Modal } from '../components/Modal';
+import { EditPharmacyModal } from '../components/EditPharmacyModal';
 import { 
   PlusCircle, 
   Edit3, 
@@ -27,7 +28,11 @@ import {
   X, 
   Clock, 
   Loader2,
-  FileText
+  FileText,
+  MapPin,
+  Mail,
+  Phone,
+  FileBadge
 } from 'lucide-react';
 
 export const PharmacyDashboardPage: React.FC = () => {
@@ -42,6 +47,8 @@ export const PharmacyDashboardPage: React.FC = () => {
   const [bills, setBills] = useState<Bill[]>([]);
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [isEditPharmModalOpen, setIsEditPharmModalOpen] = useState<boolean>(false);
+  const [profileSuccessMsg, setProfileSuccessMsg] = useState<string | null>(null);
 
   // Add/Edit Stock Form state
   const [isEditingListing, setIsEditingListing] = useState<string | null>(null);
@@ -775,38 +782,110 @@ export const PharmacyDashboardPage: React.FC = () => {
 
       {/* TAB CONTENT: PHARMACY PROFILE */}
       {activeTab === 'profile' && currentPharm && (
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 sm:p-8 max-w-2xl">
-          <h3 className="text-base font-bold text-slate-900 mb-4">
-            Pharmacy Profile Details
-          </h3>
-          <div className="space-y-3 text-xs">
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 sm:p-8 max-w-3xl">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-5 border-b border-slate-100 gap-3 mb-6">
             <div>
-              <span className="text-slate-400 font-medium">Store Name:</span>
-              <p className="text-sm font-bold text-slate-800">{currentPharm.name}</p>
-            </div>
-            <div>
-              <span className="text-slate-400 font-medium">Registered Owner:</span>
-              <p className="text-sm font-bold text-slate-800">{currentPharm.owner_name}</p>
-            </div>
-            <div>
-              <span className="text-slate-400 font-medium">Licence / Registration Number:</span>
-              <p className="text-sm font-bold text-slate-800">{currentPharm.licence_number}</p>
-            </div>
-            <div>
-              <span className="text-slate-400 font-medium">Physical Address:</span>
-              <p className="text-sm font-bold text-slate-800">
-                {currentPharm.address}, {currentPharm.city}, {currentPharm.state} - {currentPharm.pin_code}
+              <div className="flex items-center gap-2 mb-1">
+                <h3 className="text-xl font-bold text-slate-900">
+                  {currentPharm.name}
+                </h3>
+                <StatusBadge type="verification" status={currentPharm.verification_status} />
+              </div>
+              <p className="text-xs text-slate-500">
+                Official pharmacy profile and public search visibility details.
               </p>
             </div>
-            <div>
-              <span className="text-slate-400 font-medium">Contact Person:</span>
-              <p className="text-sm font-bold text-slate-800">
-                {currentPharm.contact_person} ({currentPharm.mobile_number})
+
+            <button
+              type="button"
+              onClick={() => setIsEditPharmModalOpen(true)}
+              className="flex items-center gap-1.5 px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold transition-all shadow-sm shrink-0"
+            >
+              <Edit3 className="w-3.5 h-3.5" />
+              Edit Pharmacy Details
+            </button>
+          </div>
+
+          {profileSuccessMsg && (
+            <div className="mb-6 p-3.5 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs rounded-xl flex items-center gap-2 font-semibold">
+              <Check className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+              <span>{profileSuccessMsg}</span>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 text-xs">
+            <div className="p-4 bg-slate-50 rounded-xl border border-slate-100 space-y-1">
+              <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">
+                Store Name
+              </span>
+              <p className="text-sm font-bold text-slate-800 flex items-center gap-1.5">
+                <Store className="w-4 h-4 text-emerald-600 shrink-0" />
+                {currentPharm.name}
               </p>
             </div>
-            <div>
-              <span className="text-slate-400 font-medium">Operating Hours:</span>
-              <p className="text-sm font-bold text-slate-800">{currentPharm.opening_hours}</p>
+
+            <div className="p-4 bg-slate-50 rounded-xl border border-slate-100 space-y-1">
+              <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">
+                Registered Owner
+              </span>
+              <p className="text-sm font-bold text-slate-800">
+                {currentPharm.owner_name}
+              </p>
+            </div>
+
+            <div className="p-4 bg-slate-50 rounded-xl border border-slate-100 space-y-1">
+              <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">
+                Contact Person & Phone
+              </span>
+              <p className="text-sm font-bold text-slate-800 flex items-center gap-1.5">
+                <Phone className="w-4 h-4 text-emerald-600 shrink-0" />
+                {currentPharm.contact_person} (+91 {currentPharm.mobile_number})
+              </p>
+            </div>
+
+            <div className="p-4 bg-slate-50 rounded-xl border border-slate-100 space-y-1">
+              <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">
+                Official Email
+              </span>
+              <p className="text-sm font-bold text-slate-800 flex items-center gap-1.5 font-mono">
+                <Mail className="w-4 h-4 text-emerald-600 shrink-0" />
+                {currentPharm.email}
+              </p>
+            </div>
+
+            <div className="p-4 bg-slate-50 rounded-xl border border-slate-100 space-y-1">
+              <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">
+                Drug Licence / Reg Number
+              </span>
+              <p className="text-sm font-bold text-slate-800 font-mono flex items-center gap-1.5">
+                <FileBadge className="w-4 h-4 text-emerald-600 shrink-0" />
+                {currentPharm.licence_number}
+              </p>
+            </div>
+
+            <div className="p-4 bg-slate-50 rounded-xl border border-slate-100 space-y-1">
+              <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">
+                Operating Hours
+              </span>
+              <p className="text-sm font-bold text-slate-800 flex items-center gap-1.5">
+                <Clock className="w-4 h-4 text-emerald-600 shrink-0" />
+                {currentPharm.opening_hours}
+              </p>
+            </div>
+
+            <div className="p-4 bg-slate-50 rounded-xl border border-slate-100 sm:col-span-2 space-y-1">
+              <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">
+                Physical Store Address
+              </span>
+              <p className="text-sm font-bold text-slate-800 flex items-start gap-1.5">
+                <MapPin className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                <span>
+                  {currentPharm.address}, {currentPharm.city}, {currentPharm.state} - {currentPharm.pin_code}
+                </span>
+              </p>
+              <p className="text-[11px] text-slate-400 pl-5 font-mono">
+                GPS Coordinates: {currentPharm.latitude?.toFixed(4)}, {currentPharm.longitude?.toFixed(4)}
+              </p>
             </div>
           </div>
         </div>
@@ -904,6 +983,18 @@ export const PharmacyDashboardPage: React.FC = () => {
         isOpen={Boolean(selectedBillForPrint)}
         onClose={() => setSelectedBillForPrint(null)}
         bill={selectedBillForPrint}
+      />
+
+      {/* Edit Pharmacy Details Modal */}
+      <EditPharmacyModal
+        isOpen={isEditPharmModalOpen}
+        onClose={() => setIsEditPharmModalOpen(false)}
+        pharmacy={currentPharm}
+        onSuccess={(updated) => {
+          setCurrentPharm(updated);
+          setProfileSuccessMsg('Pharmacy details updated successfully! Map location has been re-synchronized.');
+          refreshUser();
+        }}
       />
     </div>
   );

@@ -56,6 +56,14 @@ interface AuthContextType {
   }) => Promise<void>;
   logout: () => void;
   refreshUser: () => Promise<void>;
+  updateProfile: (updates: {
+    fullName?: string;
+    mobileNumber?: string;
+    city?: string;
+    state?: string;
+    pinCode?: string;
+  }) => Promise<Profile>;
+  updatePharmacyProfile: (updates: Partial<Pharmacy>) => Promise<Pharmacy>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -246,6 +254,27 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const updateProfile = async (updates: {
+    fullName?: string;
+    mobileNumber?: string;
+    city?: string;
+    state?: string;
+    pinCode?: string;
+  }): Promise<Profile> => {
+    if (!user) throw new Error('You must be logged in to update your profile.');
+    const updated = await api.updateUserProfile(user.id, updates);
+    setUser(updated);
+    localStorage.setItem('medistock_session_user', JSON.stringify(updated));
+    return updated;
+  };
+
+  const updatePharmacyProfile = async (updates: Partial<Pharmacy>): Promise<Pharmacy> => {
+    if (!pharmacy) throw new Error('No pharmacy record linked to this account.');
+    const updated = await api.updatePharmacy(pharmacy.id, updates);
+    setPharmacy(updated);
+    return updated;
+  };
+
   return (
     <AuthContext.Provider
       value={{
@@ -262,6 +291,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         registerAdmin,
         logout,
         refreshUser,
+        updateProfile,
+        updatePharmacyProfile,
       }}
     >
       {children}

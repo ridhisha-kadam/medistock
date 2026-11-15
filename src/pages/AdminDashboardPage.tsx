@@ -5,6 +5,7 @@ import { api } from '../services/api';
 import { Pharmacy, AuditLog, VerificationStatus, Profile } from '../types/database';
 import { StatusBadge } from '../components/StatusBadge';
 import { Modal } from '../components/Modal';
+import { EditPharmacyModal } from '../components/EditPharmacyModal';
 import { 
   ShieldCheck, 
   Clock, 
@@ -17,7 +18,8 @@ import {
   BarChart3, 
   LogOut,
   Loader2,
-  AlertTriangle
+  AlertTriangle,
+  Edit3
 } from 'lucide-react';
 
 export const AdminDashboardPage: React.FC = () => {
@@ -29,6 +31,7 @@ export const AdminDashboardPage: React.FC = () => {
 
   const [pharmacies, setPharmacies] = useState<Pharmacy[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
+  const [selectedPharmForEdit, setSelectedPharmForEdit] = useState<Pharmacy | null>(null);
   const [stats, setStats] = useState({
     totalCustomers: 0,
     totalPharmacies: 0,
@@ -379,6 +382,16 @@ export const AdminDashboardPage: React.FC = () => {
                             )}
                           </td>
                           <td className="px-6 py-4 text-right space-x-2">
+                            <button
+                              type="button"
+                              onClick={() => setSelectedPharmForEdit(pharm)}
+                              className="px-3 py-1.5 border border-slate-300 text-slate-700 hover:bg-slate-50 rounded-lg text-xs font-semibold transition-colors inline-flex items-center gap-1"
+                              title="Edit Pharmacy Details"
+                            >
+                              <Edit3 className="w-3 h-3 text-slate-500" />
+                              Edit
+                            </button>
+
                             {pharm.verification_status === 'PENDING_VERIFICATION' && (
                               <>
                                 <button
@@ -577,6 +590,16 @@ export const AdminDashboardPage: React.FC = () => {
           </div>
         </div>
       </Modal>
+
+      {/* Admin Edit Pharmacy Details Modal */}
+      <EditPharmacyModal
+        isOpen={Boolean(selectedPharmForEdit)}
+        onClose={() => setSelectedPharmForEdit(null)}
+        pharmacy={selectedPharmForEdit}
+        onSuccess={() => {
+          loadAllAdminData();
+        }}
+      />
     </div>
   );
 };

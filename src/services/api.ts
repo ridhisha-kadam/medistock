@@ -390,6 +390,72 @@ export const api = {
     return localDB.profiles.find(p => p.id === id) || null;
   },
 
+  /**
+   * API 3b: /api/user/{id} (PUT) - Update Customer / User Profile Details
+   */
+  async updateUserProfile(id: string, updates: {
+    fullName?: string;
+    mobileNumber?: string;
+    city?: string;
+    state?: string;
+    pinCode?: string;
+  }): Promise<Profile> {
+    const patch: Partial<Profile> = {
+      updated_at: new Date().toISOString()
+    };
+    if (updates.fullName !== undefined) {
+      if (!updates.fullName.trim()) throw new Error('Full Name cannot be empty.');
+      patch.full_name = updates.fullName.trim();
+    }
+    if (updates.mobileNumber !== undefined) {
+      if (!isValidIndianMobile(updates.mobileNumber)) {
+        throw new Error('Valid 10-digit Indian Mobile Number is required (starts with 6-9).');
+      }
+      patch.mobile_number = updates.mobileNumber.trim();
+    }
+    if (updates.city !== undefined) {
+      if (!updates.city.trim()) throw new Error('City cannot be empty.');
+      patch.city = updates.city.trim();
+    }
+    if (updates.state !== undefined) {
+      if (!updates.state.trim()) throw new Error('State cannot be empty.');
+      patch.state = updates.state.trim();
+    }
+    if (updates.pinCode !== undefined) {
+      if (!isValidIndianPinCode(updates.pinCode)) {
+        throw new Error('Valid 6-digit Indian PIN Code is required.');
+      }
+      patch.pin_code = updates.pinCode.trim();
+    }
+
+    if (isLiveSupabaseConfigured()) {
+      try {
+        const { data, error } = await supabase
+          .from('profiles')
+          .update(patch)
+          .eq('id', id)
+          .select()
+          .single();
+        if (data && !error) {
+          const lIndex = localDB.profiles.findIndex(p => p.id === id);
+          if (lIndex !== -1) {
+            localDB.profiles[lIndex] = { ...localDB.profiles[lIndex], ...data };
+            localDB.save();
+          }
+          return data;
+        }
+      } catch (e) {
+        console.warn('Supabase updateUserProfile fallback:', e);
+      }
+    }
+
+    const index = localDB.profiles.findIndex(p => p.id === id);
+    if (index === -1) throw new Error('User profile not found.');
+    localDB.profiles[index] = { ...localDB.profiles[index], ...patch };
+    localDB.save();
+    return localDB.profiles[index];
+  },
+
   // ----------------------------------------------------------------------------
   // 2. PHARMACY APIs (/api/pharmacies, /api/pharmacy/{id})
   // ----------------------------------------------------------------------------
@@ -540,15 +606,34 @@ export const api = {
    * API 7: /api/pharmacy/{id} (PUT)
    */
   async updatePharmacy(id: string, updates: Partial<Pharmacy>): Promise<Pharmacy> {
+    const patch: Partial<Pharmacy> = { ...updates, updated_at: new Date().toISOString() };
+
+    // Auto-recalculate coordinates if city or pin code changed
+    if ((updates.city || updates.pin_code) && updates.latitude === undefined) {
+      const existing = localDB.pharmacies.find(p => p.id === id);
+      const c = updates.city || existing?.city || '';
+      const pin = updates.pin_code || existing?.pin_code || '';
+      const coords = getCoordinatesForLocation(c, pin);
+      patch.latitude = coords.lat;
+      patch.longitude = coords.lng;
+    }
+
     if (isLiveSupabaseConfigured()) {
       try {
         const { data, error } = await supabase
           .from('pharmacies')
-          .update({ ...updates, updated_at: new Date().toISOString() })
+          .update(patch)
           .eq('id', id)
           .select()
           .single();
-        if (data && !error) return data;
+        if (data && !error) {
+          const lIndex = localDB.pharmacies.findIndex(p => p.id === id);
+          if (lIndex !== -1) {
+            localDB.pharmacies[lIndex] = { ...localDB.pharmacies[lIndex], ...data };
+            localDB.save();
+          }
+          return data;
+        }
       } catch (e) {
         console.warn('Supabase updatePharmacy fallback:', e);
       }
@@ -556,7 +641,7 @@ export const api = {
 
     const index = localDB.pharmacies.findIndex(p => p.id === id);
     if (index === -1) throw new Error('Pharmacy not found.');
-    localDB.pharmacies[index] = { ...localDB.pharmacies[index], ...updates, updated_at: new Date().toISOString() };
+    localDB.pharmacies[index] = { ...localDB.pharmacies[index], ...patch };
     localDB.save();
     return localDB.pharmacies[index];
   },
