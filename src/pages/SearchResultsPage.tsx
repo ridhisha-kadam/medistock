@@ -19,6 +19,7 @@ import { SearchResultItem } from '../types/database';
 import { StatusBadge } from '../components/StatusBadge';
 import { MapWidget, MapMarkerItem } from '../components/MapWidget';
 import { Modal } from '../components/Modal';
+import { CallPharmacyModal } from '../components/CallPharmacyModal';
 import { useAuth } from '../context/AuthContext';
 
 export const SearchResultsPage: React.FC = () => {
@@ -38,6 +39,7 @@ export const SearchResultsPage: React.FC = () => {
   const [inStockOnly, setInStockOnly] = useState<boolean>(false);
   const [sortBy, setSortBy] = useState<'stock' | 'price' | 'distance'>('stock');
   const [isCompareView, setIsCompareView] = useState<boolean>(false);
+  const [callModalData, setCallModalData] = useState<{ name: string; phone: string } | null>(null);
 
   // Reservation Dialog State
   const [selectedItemForReservation, setSelectedItemForReservation] = useState<SearchResultItem | null>(null);
@@ -426,16 +428,17 @@ export const SearchResultsPage: React.FC = () => {
                   {/* Actions Button Strip */}
                   <div className="mt-5 pt-4 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2">
                     <div className="flex items-center gap-2">
-                      <a
-                        href={`tel:${item.mobile_number}`}
+                      <button
+                        type="button"
+                        onClick={() => setCallModalData({ name: item.pharmacy_name, phone: item.mobile_number })}
                         className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50 text-xs font-semibold transition-colors"
                       >
                         <Phone className="w-3.5 h-3.5 text-emerald-600" />
                         Call
-                      </a>
+                      </button>
                       <a
-                        href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
-                          item.pharmacy_name + ' ' + item.pharmacy_address
+                        href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(
+                          `${item.pharmacy_name}, ${item.pharmacy_address}, ${item.city}, ${item.pin_code}`
                         )}`}
                         target="_blank"
                         rel="noopener noreferrer"
@@ -590,6 +593,14 @@ export const SearchResultsPage: React.FC = () => {
           </div>
         )}
       </Modal>
+
+      {/* Call Pharmacy Modal for PC and Mobile Dialing */}
+      <CallPharmacyModal
+        isOpen={Boolean(callModalData)}
+        onClose={() => setCallModalData(null)}
+        pharmacyName={callModalData?.name || ''}
+        phoneNumber={callModalData?.phone || ''}
+      />
     </div>
   );
 };

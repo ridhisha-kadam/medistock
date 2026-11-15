@@ -16,6 +16,7 @@ import { Pharmacy, InventoryItem } from '../types/database';
 import { StatusBadge } from '../components/StatusBadge';
 import { MapWidget } from '../components/MapWidget';
 import { Modal } from '../components/Modal';
+import { CallPharmacyModal } from '../components/CallPharmacyModal';
 import { useAuth } from '../context/AuthContext';
 
 export const PharmacyDetailsPage: React.FC = () => {
@@ -23,6 +24,7 @@ export const PharmacyDetailsPage: React.FC = () => {
   const [pharmacy, setPharmacy] = useState<Pharmacy | null>(null);
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [isCallModalOpen, setIsCallModalOpen] = useState<boolean>(false);
 
   // Reservation dialog
   const [selectedItem, setSelectedItem] = useState<InventoryItem | null>(null);
@@ -186,16 +188,17 @@ export const PharmacyDetailsPage: React.FC = () => {
           </div>
 
           <div className="flex flex-wrap items-center gap-3 pt-4 border-t border-slate-100">
-            <a
-              href={`tel:${pharmacy.mobile_number}`}
+            <button
+              type="button"
+              onClick={() => setIsCallModalOpen(true)}
               className="flex items-center gap-1.5 px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold shadow-sm transition-colors"
             >
               <Phone className="w-3.5 h-3.5" />
               Call pharmacy
-            </a>
+            </button>
             <a
-              href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
-                pharmacy.name + ' ' + pharmacy.address
+              href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(
+                `${pharmacy.name}, ${pharmacy.address}, ${pharmacy.city}, ${pharmacy.state} ${pharmacy.pin_code}`
               )}`}
               target="_blank"
               rel="noopener noreferrer"
@@ -411,6 +414,16 @@ export const PharmacyDetailsPage: React.FC = () => {
           </div>
         )}
       </Modal>
+
+      {/* Call Pharmacy Modal for PC and Mobile Dialing */}
+      {pharmacy && (
+        <CallPharmacyModal
+          isOpen={isCallModalOpen}
+          onClose={() => setIsCallModalOpen(false)}
+          pharmacyName={pharmacy.name}
+          phoneNumber={pharmacy.mobile_number}
+        />
+      )}
     </div>
   );
 };

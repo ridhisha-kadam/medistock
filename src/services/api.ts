@@ -65,6 +65,48 @@ export const calculateDistanceKm = (
   return Math.round(R * c * 10) / 10;
 };
 
+// Geolocation resolver for accurate pins across Dharwad, Hubballi & Karnataka
+export const getCoordinatesForLocation = (city: string, pinCode: string): { lat: number; lng: number } => {
+  const pin = pinCode?.trim();
+  const c = city?.trim().toLowerCase();
+
+  const pinMap: Record<string, { lat: number; lng: number }> = {
+    '580001': { lat: 15.4589, lng: 75.0078 }, // Dharwad City / Station Rd
+    '580002': { lat: 15.4520, lng: 75.0110 }, // SDMCET Dharwad
+    '580003': { lat: 15.4650, lng: 74.9950 }, // Saraswatpur Dharwad
+    '580004': { lat: 15.4350, lng: 75.0200 }, // Vidyagiri Dharwad
+    '580007': { lat: 15.4410, lng: 74.9820 }, // Karnatak University Dharwad
+    '580008': { lat: 15.4720, lng: 75.0230 }, // Saptapur Dharwad
+    '580020': { lat: 15.3647, lng: 75.1240 }, // Hubballi City
+    '580021': { lat: 15.3550, lng: 75.1320 }, // Hubballi South
+    '580023': { lat: 15.3685, lng: 75.1432 }, // Keshwapur Hubballi
+    '580024': { lat: 15.3720, lng: 75.1180 }, // Vidyanagar Hubballi
+    '580028': { lat: 15.3850, lng: 75.1550 }, // Gokul Rd Hubballi
+    '580030': { lat: 15.3420, lng: 75.1400 }, // Old Hubli
+    '580031': { lat: 15.3890, lng: 75.0890 }, // Tarihal Hubballi
+    '560001': { lat: 12.9716, lng: 77.5946 }, // Bengaluru
+    '590001': { lat: 15.8497, lng: 74.4977 }, // Belagavi
+    '575001': { lat: 12.9141, lng: 74.8560 }, // Mangaluru
+    '570001': { lat: 12.2958, lng: 76.6394 }, // Mysuru
+  };
+
+  if (pin && pinMap[pin]) return pinMap[pin];
+
+  if (c?.includes('keshwapur')) return { lat: 15.3685, lng: 75.1432 };
+  if (c?.includes('vidyanagar')) return { lat: 15.3720, lng: 75.1180 };
+  if (c?.includes('hubballi') || c?.includes('hubli')) return { lat: 15.3647, lng: 75.1240 };
+  if (c?.includes('saptapur')) return { lat: 15.4720, lng: 75.0230 };
+  if (c?.includes('vidyagiri')) return { lat: 15.4350, lng: 75.0200 };
+  if (c?.includes('bengaluru') || c?.includes('bangalore')) return { lat: 12.9716, lng: 77.5946 };
+  if (c?.includes('belagavi') || c?.includes('belgaum')) return { lat: 15.8497, lng: 74.4977 };
+
+  const hash = (pin || c || 'dharwad').split('').reduce((a, b) => a + b.charCodeAt(0), 0);
+  const jitterLat = ((hash % 100) - 50) * 0.0003;
+  const jitterLng = (((hash * 7) % 100) - 50) * 0.0003;
+
+  return { lat: 15.4589 + jitterLat, lng: 75.0078 + jitterLng };
+};
+
 // Check if a listing is stale (older than 24 hours per Design Phase Report)
 export const isListingStale = (lastUpdatedIso: string): boolean => {
   const updatedDate = new Date(lastUpdatedIso).getTime();
@@ -447,6 +489,8 @@ export const api = {
     if (!data.pinCode?.trim() || !isValidIndianPinCode(data.pinCode)) throw new Error('Valid 6-digit Indian PIN Code is required.');
     if (!data.contactPerson?.trim()) throw new Error('Contact Person is required.');
 
+    const coords = getCoordinatesForLocation(data.city, data.pinCode);
+
     const newPharmacy: Pharmacy = {
       id: generateId(),
       owner_user_id: data.ownerUserId,
@@ -461,8 +505,8 @@ export const api = {
       pin_code: data.pinCode.trim(),
       contact_person: data.contactPerson.trim(),
       opening_hours: data.openingHours?.trim() || '9:00 AM - 9:00 PM',
-      latitude: data.latitude || 15.4589, // Dharwad region default
-      longitude: data.longitude || 75.0078,
+      latitude: data.latitude || coords.lat,
+      longitude: data.longitude || coords.lng,
       verification_status: 'PENDING_VERIFICATION',
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
