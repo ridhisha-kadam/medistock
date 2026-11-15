@@ -89,8 +89,14 @@ export const EditCustomerProfileModal: React.FC<EditCustomerProfileModalProps> =
     }
   };
 
+  const modalTitle = user?.role === 'ADMIN'
+    ? 'Edit Admin Profile'
+    : user?.role === 'PHARMACY'
+    ? 'Edit User Profile'
+    : 'Edit Customer Profile';
+
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Edit Customer Profile" maxWidth="max-w-lg">
+    <Modal isOpen={isOpen} onClose={onClose} title={modalTitle} maxWidth="max-w-lg">
       <form onSubmit={handleSubmit} className="space-y-4">
         {error && (
           <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded-xl flex items-center gap-2">
