@@ -95,19 +95,22 @@ export const getCoordinatesForLocation = (locationOrCity: string, pinCode?: stri
   };
 
   // Specific Dharwad/Hubballi locality coordinates
+  if (c.includes('old hubli') || c.includes('old hubballi') || c.includes('oldhubli') || c.includes('obli') || c.includes('old hub')) return { lat: 15.3420, lng: 75.1400 };
   if (c.includes('gandhinagar') || c.includes('gandhi nagar')) return { lat: 15.4505, lng: 75.0180 };
-  if (c.includes('sdm') || c.includes('dhavalanagar') || c.includes('sattur')) return { lat: 15.4215, lng: 75.0425 };
-  if (c.includes('saptapur')) return { lat: 15.4720, lng: 75.0230 };
-  if (c.includes('vidyagiri')) return { lat: 15.4350, lng: 75.0200 };
-  if (c.includes('saraswatpur')) return { lat: 15.4650, lng: 74.9950 };
-  if (c.includes('station') || c.includes('railway')) return { lat: 15.4589, lng: 75.0078 };
-  if (c.includes('malamaddi')) return { lat: 15.4600, lng: 75.0210 };
-  if (c.includes('line bazaar') || c.includes('cbt')) return { lat: 15.4595, lng: 75.0115 };
-  if (c.includes('kelageri')) return { lat: 15.4680, lng: 74.9850 };
   if (c.includes('keshwapur')) return { lat: 15.3685, lng: 75.1432 };
+  if (c.includes('vidyanagar') && (c.includes('hubli') || c.includes('hubballi'))) return { lat: 15.3720, lng: 75.1180 };
   if (c.includes('vidyanagar')) return { lat: 15.3720, lng: 75.1180 };
   if (c.includes('gokul')) return { lat: 15.3850, lng: 75.1550 };
-  if (c.includes('hubballi') || c.includes('hubli')) return { lat: 15.3647, lng: 75.1240 };
+  if (c.includes('hubballi') || c.includes('hubli') || c.includes('ubli')) return { lat: 15.3647, lng: 75.1240 };
+  if (c.includes('sdm') || c.includes('sattur') || c.includes('dhavalanagar')) return { lat: 15.4215, lng: 75.0425 };
+  if (c.includes('vidyagiri')) return { lat: 15.4350, lng: 75.0200 };
+  if (c.includes('saptapur')) return { lat: 15.4720, lng: 75.0230 };
+  if (c.includes('saraswatpur')) return { lat: 15.4650, lng: 74.9950 };
+  if (c.includes('line bazaar') || c.includes('cbt')) return { lat: 15.4595, lng: 75.0115 };
+  if (c.includes('malamaddi')) return { lat: 15.4600, lng: 75.0210 };
+  if (c.includes('kelageri')) return { lat: 15.4680, lng: 74.9850 };
+  if (c.includes('station') || c.includes('railway')) return { lat: 15.4589, lng: 75.0078 };
+  if (c.includes('dharwad')) return { lat: 15.4589, lng: 75.0078 };
   if (c.includes('bengaluru') || c.includes('bangalore')) return { lat: 12.9716, lng: 77.5946 };
   if (c.includes('belagavi') || c.includes('belgaum')) return { lat: 15.8497, lng: 74.4977 };
 
@@ -512,13 +515,31 @@ export const api = {
       );
     }
 
-    return list;
+    const enrichCoords = (p: Pharmacy): Pharmacy => {
+      const isGeneric = !p.latitude || (Math.abs(p.latitude - 15.4589) < 0.005 && Math.abs(p.longitude - 75.0078) < 0.005);
+      if (isGeneric) {
+        const c = getCoordinatesForLocation(`${p.name} ${p.address} ${p.city}`, p.pin_code);
+        return { ...p, latitude: c.lat, longitude: c.lng };
+      }
+      return p;
+    };
+
+    return list.map(enrichCoords);
   },
 
   /**
    * API 5: /api/pharmacy/{id} (GET)
    */
   async getPharmacyById(id: string): Promise<Pharmacy | null> {
+    const enrichCoords = (p: Pharmacy): Pharmacy => {
+      const isGeneric = !p.latitude || (Math.abs(p.latitude - 15.4589) < 0.005 && Math.abs(p.longitude - 75.0078) < 0.005);
+      if (isGeneric) {
+        const c = getCoordinatesForLocation(`${p.name} ${p.address} ${p.city}`, p.pin_code);
+        return { ...p, latitude: c.lat, longitude: c.lng };
+      }
+      return p;
+    };
+
     if (isLiveSupabaseConfigured()) {
       try {
         const { data, error } = await supabase
@@ -526,12 +547,13 @@ export const api = {
           .select('*')
           .eq('id', id)
           .maybeSingle();
-        if (data && !error) return data;
+        if (data && !error) return enrichCoords(data);
       } catch (e) {
         console.warn('Supabase getPharmacyById fallback:', e);
       }
     }
-    return localDB.pharmacies.find(p => p.id === id) || null;
+    const local = localDB.pharmacies.find(p => p.id === id) || null;
+    return local ? enrichCoords(local) : null;
   },
 
   /**
@@ -564,7 +586,7 @@ export const api = {
     if (!data.pinCode?.trim() || !isValidIndianPinCode(data.pinCode)) throw new Error('Valid 6-digit Indian PIN Code is required.');
     if (!data.contactPerson?.trim()) throw new Error('Contact Person is required.');
 
-    const coords = getCoordinatesForLocation(data.city, data.pinCode);
+    const coords = getCoordinatesForLocation(`${data.name} ${data.address} ${data.city}`, data.pinCode);
 
     const newPharmacy: Pharmacy = {
       id: generateId(),
@@ -617,12 +639,12 @@ export const api = {
   async updatePharmacy(id: string, updates: Partial<Pharmacy>): Promise<Pharmacy> {
     const patch: Partial<Pharmacy> = { ...updates, updated_at: new Date().toISOString() };
 
-    // Auto-recalculate coordinates if city or pin code changed
-    if ((updates.city || updates.pin_code) && updates.latitude === undefined) {
+    // Auto-recalculate coordinates if name, address, city or pin code changed
+    if ((updates.name || updates.address || updates.city || updates.pin_code) && updates.latitude === undefined) {
       const existing = localDB.pharmacies.find(p => p.id === id);
-      const c = updates.city || existing?.city || '';
+      const fullLoc = `${updates.name || existing?.name || ''} ${updates.address || existing?.address || ''} ${updates.city || existing?.city || ''}`;
       const pin = updates.pin_code || existing?.pin_code || '';
-      const coords = getCoordinatesForLocation(c, pin);
+      const coords = getCoordinatesForLocation(fullLoc, pin);
       patch.latitude = coords.lat;
       patch.longitude = coords.lng;
     }
@@ -1077,9 +1099,19 @@ export const api = {
         }
       }
 
-      const resolvedPharmCoords = getCoordinatesForLocation(`${pharmacy.address} ${pharmacy.city}`, pharmacy.pin_code);
-      const pharmLat = pharmacy.latitude || resolvedPharmCoords.lat;
-      const pharmLng = pharmacy.longitude || resolvedPharmCoords.lng;
+      // Resolve accurate pharmacy coordinates based on its specific locality/address and PIN
+      const resolvedPharmCoords = getCoordinatesForLocation(
+        `${pharmacy.name} ${pharmacy.address} ${pharmacy.city}`, 
+        pharmacy.pin_code
+      );
+      
+      // If pharmacy was saved with the generic Dharwad station default (15.4589, 75.0078), ALWAYS use the resolved locality coordinates!
+      const isGenericDefault = 
+        !pharmacy.latitude || 
+        (Math.abs(pharmacy.latitude - 15.4589) < 0.005 && Math.abs(pharmacy.longitude - 75.0078) < 0.005);
+      
+      const pharmLat = isGenericDefault ? resolvedPharmCoords.lat : pharmacy.latitude;
+      const pharmLng = isGenericDefault ? resolvedPharmCoords.lng : pharmacy.longitude;
 
       if (effUserLat && effUserLng && pharmLat && pharmLng) {
         distanceKm = calculateDistanceKm(
@@ -1105,8 +1137,8 @@ export const api = {
         pin_code: pharmacy.pin_code,
         mobile_number: pharmacy.mobile_number,
         opening_hours: pharmacy.opening_hours,
-        latitude: pharmacy.latitude,
-        longitude: pharmacy.longitude,
+        latitude: pharmLat,
+        longitude: pharmLng,
         price: inv.price,
         quantity: inv.quantity,
         status: inv.status,

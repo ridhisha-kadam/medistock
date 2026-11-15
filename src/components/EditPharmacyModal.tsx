@@ -148,7 +148,7 @@ export const EditPharmacyModal: React.FC<EditPharmacyModalProps> = ({
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Edit Pharmacy Details" maxWidth="max-w-2xl">
-      <form onSubmit={handleSubmit} className="space-y-4 max-h-[75vh] overflow-y-auto px-1">
+      <form onSubmit={handleSubmit} className="space-y-4">
         {error && (
           <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded-xl flex items-center gap-2">
             <AlertTriangle className="w-4 h-4 flex-shrink-0" />

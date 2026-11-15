@@ -14,7 +14,7 @@ import {
   Layers,
   ArrowUpDown
 } from 'lucide-react';
-import { api, isListingStale } from '../services/api';
+import { api, isListingStale, getCoordinatesForLocation } from '../services/api';
 import { SearchResultItem } from '../types/database';
 import { StatusBadge } from '../components/StatusBadge';
 import { MapWidget, MapMarkerItem } from '../components/MapWidget';
@@ -103,8 +103,14 @@ export const SearchResultsPage: React.FC = () => {
     e.preventDefault();
     const nextParams = new URLSearchParams();
     if (query.trim()) nextParams.append('q', query.trim());
-    if (location.trim()) nextParams.append('loc', location.trim());
-    if (userLat && userLng) {
+    if (location.trim()) {
+      nextParams.append('loc', location.trim());
+      const coords = getCoordinatesForLocation(location.trim(), location.trim());
+      setUserLat(coords.lat);
+      setUserLng(coords.lng);
+      nextParams.append('lat', coords.lat.toString());
+      nextParams.append('lng', coords.lng.toString());
+    } else if (userLat && userLng) {
       nextParams.append('lat', userLat.toString());
       nextParams.append('lng', userLng.toString());
     }

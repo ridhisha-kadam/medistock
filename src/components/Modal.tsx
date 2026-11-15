@@ -39,7 +39,7 @@ export const Modal: React.FC<ModalProps> = ({
 
   return createPortal(
     <div 
-      className="fixed inset-0 z-[9999] overflow-y-auto bg-slate-900/70 backdrop-blur-sm flex items-center justify-center p-4 sm:p-6"
+      className="fixed inset-0 z-[9999] overflow-y-auto bg-slate-900/75 backdrop-blur-sm flex justify-center items-start sm:items-center p-3 sm:p-6"
       onClick={(e) => {
         if (e.target === e.currentTarget) {
           onClose();
@@ -52,7 +52,7 @@ export const Modal: React.FC<ModalProps> = ({
         aria-modal="true"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50/80 shrink-0">
+        <div className="flex items-center justify-between px-5 sm:px-6 py-4 border-b border-slate-100 bg-slate-50 shrink-0">
           <h3 className="text-base sm:text-lg font-bold text-slate-900">{title}</h3>
           <button
             type="button"
@@ -63,7 +63,7 @@ export const Modal: React.FC<ModalProps> = ({
             <X className="w-5 h-5" />
           </button>
         </div>
-        <div className="p-6 overflow-y-auto">
+        <div className="p-5 sm:p-6 overflow-y-auto">
           {children}
         </div>
       </div>

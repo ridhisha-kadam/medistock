@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Search, MapPin, Clock, ShieldCheck, PhoneCall, ArrowRight, Loader2, Navigation } from 'lucide-react';
+import { getCoordinatesForLocation } from '../services/api';
 
 export const HomePage: React.FC = () => {
   const [query, setQuery] = useState('');
@@ -13,7 +14,12 @@ export const HomePage: React.FC = () => {
     e.preventDefault();
     const params = new URLSearchParams();
     if (query.trim()) params.append('q', query.trim());
-    if (location.trim()) params.append('loc', location.trim());
+    if (location.trim()) {
+      params.append('loc', location.trim());
+      const coords = getCoordinatesForLocation(location.trim(), location.trim());
+      params.append('lat', coords.lat.toString());
+      params.append('lng', coords.lng.toString());
+    }
     navigate(`/search?${params.toString()}`);
   };
 
