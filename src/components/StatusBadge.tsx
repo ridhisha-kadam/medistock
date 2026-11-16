@@ -81,10 +81,11 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({ type, status, isStale 
   // Reservation Status
   switch (status) {
     case 'PENDING':
+    case 'RESERVED':
       return (
-        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200">
-          <Clock className="w-3.5 h-3.5" />
-          Pending
+        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-800 border border-emerald-300">
+          <Clock className="w-3.5 h-3.5 text-emerald-600" />
+          Reserved (48h Limit)
         </span>
       );
     case 'ACCEPTED':
@@ -106,6 +107,13 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({ type, status, isStale 
         <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
           <CheckCircle2 className="w-3.5 h-3.5" />
           Completed
+        </span>
+      );
+    case 'EXPIRED':
+      return (
+        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-100 text-rose-800 border border-rose-300">
+          <Clock className="w-3.5 h-3.5 text-rose-600" />
+          Expired
         </span>
       );
     case 'REJECTED':

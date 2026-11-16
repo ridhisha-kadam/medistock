@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Search, MapPin, Clock, ShieldCheck, PhoneCall, ArrowRight, Loader2, Navigation } from 'lucide-react';
+import { useNavigate, Link } from 'react-router-dom';
+import { Search, MapPin, Clock, ShieldCheck, PhoneCall, ArrowRight, Loader2, Navigation, BookOpen, Pill, ChevronRight } from 'lucide-react';
 import { getCoordinatesForLocation } from '../services/api';
+import { THERAPEUTIC_CATEGORIES } from '../data/medicineCatalogData';
 
 export const HomePage: React.FC = () => {
   const [query, setQuery] = useState('');
@@ -192,6 +193,65 @@ export const HomePage: React.FC = () => {
               </p>
             </div>
           </div>
+        </div>
+      </section>
+
+      {/* FEATURE 1.2: Therapeutic Categories Showcase */}
+      <section className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 mb-16 w-full">
+        <div className="flex flex-col sm:flex-row sm:items-end justify-between mb-8 gap-4">
+          <div>
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 mb-2">
+              <BookOpen className="w-3.5 h-3.5" />
+              Comprehensive Generic Catalogue
+            </div>
+            <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900">
+              Browse 240+ Verified Medicines by Therapeutic Category
+            </h2>
+            <p className="text-sm text-slate-600 mt-1 max-w-2xl">
+              Strictly verified generic formulations and strengths based on India National List of Essential Medicines (NLEM 2022) and WHO ATC classifications.
+            </p>
+          </div>
+
+          <Link
+            to="/catalog"
+            className="inline-flex items-center gap-1.5 px-5 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold transition-all shadow-sm shrink-0"
+          >
+            Explore All 40 Categories
+            <ChevronRight className="w-4 h-4" />
+          </Link>
+        </div>
+
+        {/* Categories Grid (Top 12 featured preview) */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+          {THERAPEUTIC_CATEGORIES.slice(0, 12).map((category) => (
+            <Link
+              key={category.id}
+              to={`/catalog?category=${encodeURIComponent(category.name)}`}
+              className="group bg-white p-4 rounded-2xl border border-slate-200 hover:border-emerald-500 hover:shadow-md transition-all text-left flex flex-col justify-between"
+            >
+              <div>
+                <span className="text-2xl mb-2 block">{category.icon || '💊'}</span>
+                <h3 className="font-bold text-slate-900 text-xs sm:text-sm group-hover:text-emerald-700 transition-colors line-clamp-2">
+                  {category.name}
+                </h3>
+              </div>
+              <div className="mt-3 flex items-center justify-between text-[11px] text-slate-500">
+                <span>Verified Formulations</span>
+                <span className="text-emerald-700 font-bold group-hover:translate-x-0.5 transition-transform">
+                  View →
+                </span>
+              </div>
+            </Link>
+          ))}
+        </div>
+
+        <div className="mt-6 text-center">
+          <Link
+            to="/catalog"
+            className="text-xs font-bold text-emerald-700 hover:text-emerald-800 hover:underline inline-flex items-center gap-1"
+          >
+            View all 40 therapeutic categories and 245+ generic medicines in catalog →
+          </Link>
         </div>
       </section>
 

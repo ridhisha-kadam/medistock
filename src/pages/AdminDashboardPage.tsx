@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
-import { Pharmacy, AuditLog, VerificationStatus, Profile } from '../types/database';
+import { Pharmacy, AuditLog, VerificationStatus, Profile, Medicine, MedicineVariant } from '../types/database';
+import { THERAPEUTIC_CATEGORIES } from '../data/medicineCatalogData';
 import { StatusBadge } from '../components/StatusBadge';
 import { Modal } from '../components/Modal';
 import { EditPharmacyModal } from '../components/EditPharmacyModal';
@@ -19,17 +20,26 @@ import {
   LogOut,
   Loader2,
   AlertTriangle,
-  Edit3
+  Edit3,
+  BookOpen,
+  Plus,
+  PlusCircle,
+  Search,
+  Trash2,
+  Layers,
+  Pill,
+  Check
 } from 'lucide-react';
 
 export const AdminDashboardPage: React.FC = () => {
   const { user, isAdmin, logout } = useAuth();
   const navigate = useNavigate();
 
-  const [activeSection, setActiveSection] = useState<'verification' | 'users' | 'audit' | 'reports'>('verification');
+  const [activeSection, setActiveSection] = useState<'verification' | 'catalog' | 'users' | 'audit' | 'reports'>('verification');
   const [pharmacyTab, setPharmacyTab] = useState<VerificationStatus>('PENDING_VERIFICATION');
 
   const [pharmacies, setPharmacies] = useState<Pharmacy[]>([]);
+  const [medicines, setMedicines] = useState<Medicine[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [selectedPharmForEdit, setSelectedPharmForEdit] = useState<Pharmacy | null>(null);
   const [stats, setStats] = useState({
@@ -40,10 +50,67 @@ export const AdminDashboardPage: React.FC = () => {
     rejectedPharmacies: 0,
     disabledPharmacies: 0,
     totalMedicines: 0,
+    totalVariants: 0,
+    totalCategories: 0,
     totalInventoryListings: 0,
     totalReservations: 0,
+    activeReservations: 0,
+    collectedReservations: 0,
+    expiredReservations: 0,
+    cancelledReservations: 0,
   });
   const [isLoading, setIsLoading] = useState<boolean>(true);
+
+  // Catalog Section State
+  const [catalogSearch, setCatalogSearch] = useState('');
+  const [catalogCategory, setCatalogCategory] = useState('');
+  const [isAddMedModalOpen, setIsAddMedModalOpen] = useState(false);
+  const [isAddVariantModalOpen, setIsAddVariantModalOpen] = useState(false);
+  const [isEditMedModalOpen, setIsEditMedModalOpen] = useState(false);
+  const [targetMedForVariant, setTargetMedForVariant] = useState<Medicine | null>(null);
+  const [targetMedForEdit, setTargetMedForEdit] = useState<Medicine | null>(null);
+  const [medActionError, setMedActionError] = useState<string | null>(null);
+  const [medActionSuccess, setMedActionSuccess] = useState<string | null>(null);
+
+  // Add Medicine Form
+  const [newMedForm, setNewMedForm] = useState({
+    genericName: '',
+    displayName: '',
+    category: THERAPEUTIC_CATEGORIES[0]?.name || 'Blood Pressure (BP) and Hypertension',
+    activeIngredient: '',
+    composition: '',
+    strength: '500 mg',
+    dosageForm: 'Tablet',
+    route: 'Oral',
+    referenceSource: 'NLEM 2022 / IP',
+    description: '',
+    isPrescriptionRequired: true,
+  });
+
+  // Add Variant Form
+  const [newVariantForm, setNewVariantForm] = useState({
+    strength: '',
+    dosageForm: 'Tablet',
+    route: 'Oral',
+    composition: '',
+    referenceSource: 'NLEM 2022 / IP',
+    isPrescriptionRequired: true,
+  });
+
+  // Edit Medicine Form
+  const [editMedForm, setEditMedForm] = useState({
+    displayName: '',
+    genericName: '',
+    category: '',
+    activeIngredient: '',
+    composition: '',
+    strengthForm: '',
+    dosageForm: '',
+    route: '',
+    referenceSource: '',
+    description: '',
+    isPrescriptionRequired: true,
+  });
 
   // Reject Modal state
   const [selectedPharmForReject, setSelectedPharmForReject] = useState<Pharmacy | null>(null);
@@ -71,10 +138,17 @@ export const AdminDashboardPage: React.FC = () => {
         rejectedPharmacies: data.rejectedPharmacies,
         disabledPharmacies: data.disabledPharmacies,
         totalMedicines: data.totalMedicines,
+        totalVariants: data.totalVariants || 0,
+        totalCategories: data.totalCategories || 40,
         totalInventoryListings: data.totalInventoryListings,
         totalReservations: data.totalReservations,
+        activeReservations: data.activeReservations || 0,
+        collectedReservations: data.collectedReservations || 0,
+        expiredReservations: data.expiredReservations || 0,
+        cancelledReservations: data.cancelledReservations || 0,
       });
       setPharmacies(data.pharmacies);
+      setMedicines(data.medicines || []);
       setAuditLogs(data.auditLogs);
     } catch (e) {
       console.error('Failed loading admin dashboard data:', e);
@@ -141,6 +215,214 @@ export const AdminDashboardPage: React.FC = () => {
     }
   };
 
+  // FEATURE 5: Admin Catalog Management Handlers
+  const handleAddMedicine = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setMedActionError(null);
+    setMedActionSuccess(null);
+
+    if (!newMedForm.genericName.trim()) {
+      setMedActionError('Generic Medicine Name is required.');
+      return;
+    }
+    if (!newMedForm.category.trim()) {
+      setMedActionError('Therapeutic Category is required.');
+      return;
+    }
+    if (!newMedForm.activeIngredient.trim()) {
+      setMedActionError('Active Ingredient is required.');
+      return;
+    }
+    if (!newMedForm.composition.trim()) {
+      setMedActionError('Complete Composition is required.');
+      return;
+    }
+
+    try {
+      const displayName = newMedForm.displayName.trim() || `${newMedForm.genericName.trim()} ${newMedForm.strength.trim()} ${newMedForm.dosageForm.trim()}`;
+      await api.createMedicine({
+        genericName: newMedForm.genericName.trim(),
+        displayName,
+        category: newMedForm.category.trim(),
+        activeIngredient: newMedForm.activeIngredient.trim(),
+        composition: newMedForm.composition.trim(),
+        strengthForm: `${newMedForm.strength.trim()} ${newMedForm.dosageForm.trim()}`,
+        dosageForm: newMedForm.dosageForm.trim(),
+        route: newMedForm.route.trim(),
+        referenceSource: newMedForm.referenceSource.trim() || 'NLEM 2022 / IP',
+        description: newMedForm.description.trim() || `${newMedForm.genericName.trim()} for ${newMedForm.category.trim()}`,
+        isPrescriptionRequired: newMedForm.isPrescriptionRequired,
+        createdBy: user?.id,
+      });
+
+      setMedActionSuccess(`Medicine "${newMedForm.genericName.trim()}" added to catalog successfully!`);
+      setIsAddMedModalOpen(false);
+      setNewMedForm({
+        genericName: '',
+        displayName: '',
+        category: THERAPEUTIC_CATEGORIES[0]?.name || 'Blood Pressure (BP) and Hypertension',
+        activeIngredient: '',
+        composition: '',
+        strength: '500 mg',
+        dosageForm: 'Tablet',
+        route: 'Oral',
+        referenceSource: 'NLEM 2022 / IP',
+        description: '',
+        isPrescriptionRequired: true,
+      });
+      await loadAdminData();
+    } catch (err: any) {
+      setMedActionError(err.message || 'Failed to add medicine to catalog.');
+    }
+  };
+
+  const handleOpenAddVariant = (med: Medicine) => {
+    setTargetMedForVariant(med);
+    setNewVariantForm({
+      strength: '',
+      dosageForm: med.dosage_form || 'Tablet',
+      route: med.route || 'Oral',
+      composition: med.composition || med.active_ingredient || '',
+      referenceSource: med.reference_source || 'NLEM 2022 / IP',
+      isPrescriptionRequired: med.is_prescription_required !== false,
+    });
+    setMedActionError(null);
+    setMedActionSuccess(null);
+    setIsAddVariantModalOpen(true);
+  };
+
+  const handleAddVariant = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!targetMedForVariant) return;
+    setMedActionError(null);
+    setMedActionSuccess(null);
+
+    if (!newVariantForm.strength.trim()) {
+      setMedActionError('Strength is required (e.g. 650 mg).');
+      return;
+    }
+    if (!newVariantForm.dosageForm.trim()) {
+      setMedActionError('Dosage Form is required (e.g. Tablet).');
+      return;
+    }
+
+    try {
+      await api.addMedicineVariant(targetMedForVariant.id, {
+        strength: newVariantForm.strength.trim(),
+        dosage_form: newVariantForm.dosageForm.trim(),
+        route: newVariantForm.route.trim() || 'Oral',
+        composition: newVariantForm.composition.trim() || targetMedForVariant.composition || '',
+        reference_source: newVariantForm.referenceSource.trim() || 'NLEM 2022 / IP',
+        is_prescription_required: newVariantForm.isPrescriptionRequired,
+      });
+
+      setMedActionSuccess(`Variant "${newVariantForm.strength} ${newVariantForm.dosageForm}" added to ${targetMedForVariant.generic_name}!`);
+      setIsAddVariantModalOpen(false);
+      setTargetMedForVariant(null);
+      await loadAdminData();
+    } catch (err: any) {
+      setMedActionError(err.message || 'Failed to add variant.');
+    }
+  };
+
+  const handleDeleteVariant = async (medId: string, variantId: string) => {
+    if (!confirm('Are you sure you want to delete this formulation variant?')) return;
+    try {
+      await api.deleteMedicineVariant(medId, variantId);
+      await loadAdminData();
+    } catch (err: any) {
+      alert(err.message || 'Failed to delete variant.');
+    }
+  };
+
+  const handleOpenEditMedicine = (med: Medicine) => {
+    setTargetMedForEdit(med);
+    setEditMedForm({
+      displayName: med.display_name,
+      genericName: med.generic_name,
+      category: med.category,
+      activeIngredient: med.active_ingredient || '',
+      composition: med.composition || '',
+      strengthForm: med.strength_form,
+      dosageForm: med.dosage_form || '',
+      route: med.route || '',
+      referenceSource: med.reference_source || 'NLEM 2022 / IP',
+      description: med.description || '',
+      isPrescriptionRequired: med.is_prescription_required !== false,
+    });
+    setMedActionError(null);
+    setMedActionSuccess(null);
+    setIsEditMedModalOpen(true);
+  };
+
+  const handleSaveEditMedicine = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!targetMedForEdit) return;
+    setMedActionError(null);
+
+    try {
+      await api.updateMedicine(targetMedForEdit.id, {
+        display_name: editMedForm.displayName.trim(),
+        generic_name: editMedForm.genericName.trim(),
+        category: editMedForm.category.trim(),
+        active_ingredient: editMedForm.activeIngredient.trim(),
+        composition: editMedForm.composition.trim(),
+        strength_form: editMedForm.strengthForm.trim(),
+        dosage_form: editMedForm.dosageForm.trim(),
+        route: editMedForm.route.trim(),
+        reference_source: editMedForm.referenceSource.trim(),
+        description: editMedForm.description.trim(),
+        is_prescription_required: editMedForm.isPrescriptionRequired,
+      });
+
+      setMedActionSuccess(`Medicine "${editMedForm.genericName}" updated successfully!`);
+      setIsEditMedModalOpen(false);
+      setTargetMedForEdit(null);
+      await loadAdminData();
+    } catch (err: any) {
+      setMedActionError(err.message || 'Failed to update medicine.');
+    }
+  };
+
+  const handleDeleteMedicine = async (medId: string, medName: string) => {
+    if (!confirm(`Are you sure you want to delete "${medName}" from the catalog? This cannot be undone.`)) return;
+    try {
+      await api.deleteMedicine(medId);
+      await loadAdminData();
+    } catch (err: any) {
+      alert(err.message || 'Failed to delete medicine.');
+    }
+  };
+
+  // Case-Insensitive, Exact-Spelling Catalog Filter (FEATURE 3)
+  const filteredCatalog = medicines.filter((med) => {
+    if (catalogCategory && med.category !== catalogCategory) {
+      return false;
+    }
+
+    const q = catalogSearch.trim().toLowerCase();
+    if (!q) return true;
+
+    const generic = (med.generic_name || '').trim().toLowerCase();
+    const display = (med.display_name || '').trim().toLowerCase();
+    const active = (med.active_ingredient || '').trim().toLowerCase();
+    const cat = (med.category || '').trim().toLowerCase();
+
+    if (generic === q || display === q || active === q || cat === q) {
+      return true;
+    }
+
+    if (med.variants?.some(v => {
+      const vStr = v.strength.trim().toLowerCase();
+      const vComb = `${generic} ${vStr}`;
+      return vStr === q || vComb === q;
+    })) {
+      return true;
+    }
+
+    return false;
+  });
+
   // Filtered pharmacies for the active verification tab
   const filteredPharmacies = pharmacies.filter(p => p.verification_status === pharmacyTab);
 
@@ -175,6 +457,23 @@ export const AdminDashboardPage: React.FC = () => {
           >
             <ShieldCheck className="w-4 h-4 text-emerald-400" />
             Pharmacy verification
+          </button>
+
+          <button
+            onClick={() => setActiveSection('catalog')}
+            className={`w-full flex items-center justify-between px-4 py-3 rounded-xl transition-all text-left ${
+              activeSection === 'catalog'
+                ? 'bg-emerald-700 text-white font-bold shadow-sm'
+                : 'text-emerald-100/70 hover:bg-emerald-900/60 hover:text-white'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <BookOpen className="w-4 h-4 text-emerald-400" />
+              <span>Medicine Catalogue</span>
+            </div>
+            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-800 text-emerald-200">
+              {stats.totalMedicines || 245}
+            </span>
           </button>
 
           <button
@@ -233,10 +532,16 @@ export const AdminDashboardPage: React.FC = () => {
         <div className="flex items-center justify-between pb-6 border-b border-slate-200 mb-8">
           <div>
             <h1 className="text-2xl font-black text-slate-900 capitalize">
-              {activeSection === 'verification' ? 'Pharmacy verification' : activeSection}
+              {activeSection === 'verification' 
+                ? 'Pharmacy verification' 
+                : activeSection === 'catalog'
+                ? 'Medicine Catalogue Management'
+                : activeSection}
             </h1>
             <p className="text-xs text-slate-500 mt-0.5">
-              Strict administrative review portal. Pharmacy details must originate only from self-registration.
+              {activeSection === 'catalog'
+                ? 'Comprehensive catalog of 200+ generic medicines across 40 therapeutic categories. Add, edit, manage formulations & variants.'
+                : 'Strict administrative review portal. Pharmacy details must originate only from self-registration.'}
             </p>
           </div>
 
@@ -475,6 +780,254 @@ export const AdminDashboardPage: React.FC = () => {
           </div>
         )}
 
+        {/* SECTION: MEDICINE CATALOG MANAGEMENT (FEATURES 1, 2, 3, 5) */}
+        {activeSection === 'catalog' && (
+          <div className="space-y-6">
+            {/* Top Catalog Metric Cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+              <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 flex items-center justify-between">
+                <div>
+                  <span className="text-xs font-bold text-slate-500 block mb-1">Generic Medicines</span>
+                  <div className="text-3xl font-black text-emerald-700">{stats.totalMedicines}</div>
+                  <span className="text-[11px] text-emerald-600 font-medium">Distinct Generic Active Ingredients</span>
+                </div>
+                <div className="w-12 h-12 rounded-full bg-emerald-50 flex items-center justify-center text-emerald-700">
+                  <Pill className="w-6 h-6" />
+                </div>
+              </div>
+
+              <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 flex items-center justify-between">
+                <div>
+                  <span className="text-xs font-bold text-slate-500 block mb-1">Verified Variants & Strengths</span>
+                  <div className="text-3xl font-black text-blue-600">{stats.totalVariants}</div>
+                  <span className="text-[11px] text-blue-600 font-medium">Formulations & Dosages</span>
+                </div>
+                <div className="w-12 h-12 rounded-full bg-blue-50 flex items-center justify-center text-blue-600">
+                  <Layers className="w-6 h-6" />
+                </div>
+              </div>
+
+              <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 flex items-center justify-between">
+                <div>
+                  <span className="text-xs font-bold text-slate-500 block mb-1">Therapeutic Categories</span>
+                  <div className="text-3xl font-black text-purple-600">{stats.totalCategories}</div>
+                  <span className="text-[11px] text-purple-600 font-medium">BP, Diabetes, Heart, Fever, etc.</span>
+                </div>
+                <div className="w-12 h-12 rounded-full bg-purple-50 flex items-center justify-center text-purple-600">
+                  <BookOpen className="w-6 h-6" />
+                </div>
+              </div>
+            </div>
+
+            {/* Notifications */}
+            {medActionSuccess && (
+              <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-2xl text-xs text-emerald-800 font-semibold flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Check className="w-4 h-4 text-emerald-600" />
+                  <span>{medActionSuccess}</span>
+                </div>
+                <button onClick={() => setMedActionSuccess(null)} className="text-emerald-600 hover:text-emerald-900">
+                  ✕
+                </button>
+              </div>
+            )}
+
+            {medActionError && (
+              <div className="p-4 bg-rose-50 border border-rose-200 rounded-2xl text-xs text-rose-800 font-semibold flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 text-rose-600" />
+                  <span>{medActionError}</span>
+                </div>
+                <button onClick={() => setMedActionError(null)} className="text-rose-600 hover:text-rose-900">
+                  ✕
+                </button>
+              </div>
+            )}
+
+            {/* Catalog Filter and Actions Bar */}
+            <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4">
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 flex-1">
+                {/* Exact Spelling Search (Feature 3) */}
+                <div className="relative flex-1">
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3 pointer-events-none" />
+                  <input
+                    type="text"
+                    value={catalogSearch}
+                    onChange={(e) => setCatalogSearch(e.target.value)}
+                    placeholder="Search medicine (exact spelling: e.g. Paracetamol)..."
+                    className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:bg-white"
+                  />
+                  {catalogSearch && (
+                    <button
+                      onClick={() => setCatalogSearch('')}
+                      className="absolute right-3 top-2.5 text-xs text-slate-400 hover:text-slate-600"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+
+                {/* Category Filter */}
+                <select
+                  value={catalogCategory}
+                  onChange={(e) => setCatalogCategory(e.target.value)}
+                  className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-600"
+                >
+                  <option value="">All 40 Categories ({stats.totalMedicines} medicines)</option>
+                  {THERAPEUTIC_CATEGORIES.map((cat) => (
+                    <option key={cat.id} value={cat.name}>
+                      {cat.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Add New Medicine Button */}
+              <button
+                onClick={() => {
+                  setMedActionError(null);
+                  setMedActionSuccess(null);
+                  setIsAddMedModalOpen(true);
+                }}
+                className="flex items-center justify-center gap-1.5 px-4 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold transition-colors shadow-sm whitespace-nowrap"
+              >
+                <Plus className="w-4 h-4" />
+                Add New Medicine
+              </button>
+            </div>
+
+            {/* Catalog Medicines Table */}
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+              <div className="p-4 bg-slate-50/70 border-b border-slate-200 flex items-center justify-between text-xs">
+                <span className="font-bold text-slate-700">
+                  Showing {filteredCatalog.length} of {medicines.length} generic medicines
+                  {catalogCategory && ` in ${catalogCategory}`}
+                </span>
+                {catalogSearch && (
+                  <span className="text-slate-500 font-mono text-[11px]">
+                    Exact match: "{catalogSearch.trim()}"
+                  </span>
+                )}
+              </div>
+
+              {filteredCatalog.length === 0 ? (
+                <div className="p-12 text-center text-slate-400 text-xs">
+                  <Pill className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                  <p className="font-semibold text-slate-700">No medicines found</p>
+                  <p className="mt-1">
+                    Search requires exact spelling per MediStock specification. Check spelling or clear filters.
+                  </p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-50 text-slate-600 font-semibold uppercase tracking-wider border-b border-slate-200">
+                      <tr>
+                        <th className="px-5 py-3.5">Generic Medicine</th>
+                        <th className="px-5 py-3.5">Category</th>
+                        <th className="px-5 py-3.5">Active Ingredient / Composition</th>
+                        <th className="px-5 py-3.5">Verified Variants ({stats.totalVariants})</th>
+                        <th className="px-5 py-3.5">Reference / Rx</th>
+                        <th className="px-5 py-3.5 text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {filteredCatalog.map((med) => (
+                        <tr key={med.id} className="hover:bg-slate-50/60 transition-colors">
+                          <td className="px-5 py-3.5">
+                            <div className="font-bold text-slate-900 text-sm">{med.generic_name}</div>
+                            <div className="text-[11px] text-slate-500 font-medium">{med.display_name}</div>
+                          </td>
+
+                          <td className="px-5 py-3.5">
+                            <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-slate-100 text-slate-700">
+                              {med.category}
+                            </span>
+                          </td>
+
+                          <td className="px-5 py-3.5 max-w-xs">
+                            <div className="font-medium text-slate-800">{med.active_ingredient}</div>
+                            <div className="text-[11px] text-slate-500 truncate" title={med.composition}>
+                              {med.composition}
+                            </div>
+                          </td>
+
+                          <td className="px-5 py-3.5">
+                            <div className="flex flex-wrap gap-1 max-w-xs">
+                              {med.variants && med.variants.length > 0 ? (
+                                med.variants.map((v) => (
+                                  <span
+                                    key={v.id}
+                                    className="group inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200"
+                                  >
+                                    <span>{v.strength} {v.dosage_form}</span>
+                                    {med.variants && med.variants.length > 1 && (
+                                      <button
+                                        onClick={() => handleDeleteVariant(med.id, v.id)}
+                                        className="text-rose-400 hover:text-rose-700 opacity-60 hover:opacity-100 transition-opacity"
+                                        title="Delete variant"
+                                      >
+                                        ✕
+                                      </button>
+                                    )}
+                                  </span>
+                                ))
+                              ) : (
+                                <span className="text-[11px] text-slate-400">{med.strength_form}</span>
+                              )}
+                            </div>
+                          </td>
+
+                          <td className="px-5 py-3.5">
+                            <div className="text-[11px] font-mono text-slate-600">
+                              {med.reference_source || 'NLEM 2022 / IP'}
+                            </div>
+                            <span className={`inline-block px-1.5 py-0.5 rounded text-[9px] font-bold mt-0.5 ${
+                              med.is_prescription_required !== false 
+                                ? 'bg-amber-100 text-amber-800' 
+                                : 'bg-emerald-100 text-emerald-800'
+                            }`}>
+                              {med.is_prescription_required !== false ? 'Prescription Required' : 'Non-Prescription / OTC'}
+                            </span>
+                          </td>
+
+                          <td className="px-5 py-3.5 text-right space-x-1.5 whitespace-nowrap">
+                            <button
+                              onClick={() => handleOpenAddVariant(med)}
+                              className="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-lg text-xs font-semibold transition-colors inline-flex items-center gap-1"
+                              title="Add formulation variant (strength / dosage form)"
+                            >
+                              <PlusCircle className="w-3 h-3 text-emerald-700" />
+                              + Variant
+                            </button>
+
+                            <button
+                              onClick={() => handleOpenEditMedicine(med)}
+                              className="px-2.5 py-1 border border-slate-200 text-slate-700 hover:bg-slate-50 rounded-lg text-xs font-semibold transition-colors inline-flex items-center gap-1"
+                              title="Edit medicine details"
+                            >
+                              <Edit3 className="w-3 h-3 text-slate-500" />
+                              Edit
+                            </button>
+
+                            <button
+                              onClick={() => handleDeleteMedicine(med.id, med.generic_name)}
+                              className="px-2 py-1 text-rose-600 hover:bg-rose-50 border border-rose-200 rounded-lg text-xs font-semibold transition-colors"
+                              title="Delete medicine"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* SECTION 2: USERS MANAGEMENT */}
         {activeSection === 'users' && (
           <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
@@ -517,22 +1070,55 @@ export const AdminDashboardPage: React.FC = () => {
           </div>
         )}
 
-        {/* SECTION 4: SYSTEM REPORTS */}
+        {/* SECTION 4: SYSTEM REPORTS & METRICS */}
         {activeSection === 'reports' && (
-          <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
-            <h3 className="text-base font-bold text-slate-900 mb-4">System Analytics & Distribution</h3>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 text-xs">
-              <div className="p-4 bg-slate-50 rounded-xl border border-slate-200">
-                <span className="font-bold text-slate-800 block mb-2">Total Medicines in Catalogue</span>
-                <span className="text-2xl font-black text-emerald-700">{stats.totalMedicines}</span>
+          <div className="space-y-6">
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
+              <h3 className="text-base font-bold text-slate-900 mb-2">System Analytics & Distribution</h3>
+              <p className="text-xs text-slate-500 mb-6">
+                Comprehensive overview of central catalog medicines, verified formulations, active listings, and 48-hour reservation lifecycle.
+              </p>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 text-xs mb-6">
+                <div className="p-4 bg-emerald-50/60 rounded-xl border border-emerald-200">
+                  <span className="font-bold text-slate-800 block mb-1">Total Generic Medicines</span>
+                  <span className="text-2xl font-black text-emerald-700">{stats.totalMedicines}</span>
+                  <p className="text-[11px] text-slate-500 mt-1">Predefined verified active ingredients</p>
+                </div>
+
+                <div className="p-4 bg-blue-50/60 rounded-xl border border-blue-200">
+                  <span className="font-bold text-slate-800 block mb-1">Formulation Variants</span>
+                  <span className="text-2xl font-black text-blue-700">{stats.totalVariants}</span>
+                  <p className="text-[11px] text-slate-500 mt-1">Verified dosage forms & strengths</p>
+                </div>
+
+                <div className="p-4 bg-purple-50/60 rounded-xl border border-purple-200">
+                  <span className="font-bold text-slate-800 block mb-1">Therapeutic Categories</span>
+                  <span className="text-2xl font-black text-purple-700">{stats.totalCategories}</span>
+                  <p className="text-[11px] text-slate-500 mt-1">Full therapeutic disease classification</p>
+                </div>
               </div>
-              <div className="p-4 bg-slate-50 rounded-xl border border-slate-200">
-                <span className="font-bold text-slate-800 block mb-2">Total Active Inventory Listings</span>
-                <span className="text-2xl font-black text-emerald-700">{stats.totalInventoryListings}</span>
-              </div>
-              <div className="p-4 bg-slate-50 rounded-xl border border-slate-200">
-                <span className="font-bold text-slate-800 block mb-2">Total Pickup Reservations</span>
-                <span className="text-2xl font-black text-emerald-700">{stats.totalReservations}</span>
+
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 text-xs pt-4 border-t border-slate-100">
+                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
+                  <span className="font-bold text-slate-700 block mb-1">Active Listings</span>
+                  <span className="text-xl font-black text-slate-900">{stats.totalInventoryListings}</span>
+                </div>
+
+                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
+                  <span className="font-bold text-slate-700 block mb-1">Total Reservations</span>
+                  <span className="text-xl font-black text-slate-900">{stats.totalReservations}</span>
+                </div>
+
+                <div className="p-3 bg-amber-50 rounded-xl border border-amber-200">
+                  <span className="font-bold text-amber-900 block mb-1">Active (Within 48h)</span>
+                  <span className="text-xl font-black text-amber-700">{stats.activeReservations}</span>
+                </div>
+
+                <div className="p-3 bg-rose-50 rounded-xl border border-rose-200">
+                  <span className="font-bold text-rose-900 block mb-1">Expired (48h limit)</span>
+                  <span className="text-xl font-black text-rose-700">{stats.expiredReservations}</span>
+                </div>
               </div>
             </div>
           </div>
@@ -597,9 +1183,506 @@ export const AdminDashboardPage: React.FC = () => {
         onClose={() => setSelectedPharmForEdit(null)}
         pharmacy={selectedPharmForEdit}
         onSuccess={() => {
-          loadAllAdminData();
+          loadAdminData();
         }}
       />
+
+      {/* FEATURE 5: Add New Generic Medicine to Catalog Modal */}
+      <Modal
+        isOpen={isAddMedModalOpen}
+        onClose={() => setIsAddMedModalOpen(false)}
+        title="Add New Generic Medicine to Catalogue"
+      >
+        <form onSubmit={handleAddMedicine} className="space-y-4 max-h-[75vh] overflow-y-auto pr-1">
+          <p className="text-xs text-slate-500">
+            Add a verified generic medicine to the central MediStock catalog. Complete composition and therapeutic category are required per NLEM / WHO ATC standards.
+          </p>
+
+          {medActionError && (
+            <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700">
+              {medActionError}
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">
+                Generic Medicine Name *
+              </label>
+              <input
+                type="text"
+                required
+                value={newMedForm.genericName}
+                onChange={(e) => setNewMedForm({ ...newMedForm, genericName: e.target.value })}
+                placeholder="e.g. Paracetamol"
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-600"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">
+                Display Name (Optional)
+              </label>
+              <input
+                type="text"
+                value={newMedForm.displayName}
+                onChange={(e) => setNewMedForm({ ...newMedForm, displayName: e.target.value })}
+                placeholder="e.g. Paracetamol 500 mg Tablet"
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-600"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-slate-700 mb-1">
+              Therapeutic Category *
+            </label>
+            <select
+              required
+              value={newMedForm.category}
+              onChange={(e) => setNewMedForm({ ...newMedForm, category: e.target.value })}
+              className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-600"
+            >
+              {THERAPEUTIC_CATEGORIES.map((c) => (
+                <option key={c.id} value={c.name}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">
+                Active Ingredient *
+              </label>
+              <input
+                type="text"
+                required
+                value={newMedForm.activeIngredient}
+                onChange={(e) => setNewMedForm({ ...newMedForm, activeIngredient: e.target.value })}
+                placeholder="e.g. Paracetamol"
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-600"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">
+                Complete Composition *
+              </label>
+              <input
+                type="text"
+                required
+                value={newMedForm.composition}
+                onChange={(e) => setNewMedForm({ ...newMedForm, composition: e.target.value })}
+                placeholder="e.g. Paracetamol 500 mg"
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-600"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">
+                Initial Strength *
+              </label>
+              <input
+                type="text"
+                required
+                value={newMedForm.strength}
+                onChange={(e) => setNewMedForm({ ...newMedForm, strength: e.target.value })}
+                placeholder="e.g. 500 mg"
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-600"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">
+                Dosage Form *
+              </label>
+              <select
+                required
+                value={newMedForm.dosageForm}
+                onChange={(e) => setNewMedForm({ ...newMedForm, dosageForm: e.target.value })}
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-600"
+              >
+                <option value="Tablet">Tablet</option>
+                <option value="Capsule">Capsule</option>
+                <option value="Syrup">Syrup</option>
+                <option value="Oral Suspension">Oral Suspension</option>
+                <option value="Injection">Injection</option>
+                <option value="Ointment">Ointment</option>
+                <option value="Cream">Cream</option>
+                <option value="Eye Drops">Eye Drops</option>
+                <option value="Inhaler">Inhaler</option>
+                <option value="Powder">Powder</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">
+                Route *
+              </label>
+              <select
+                required
+                value={newMedForm.route}
+                onChange={(e) => setNewMedForm({ ...newMedForm, route: e.target.value })}
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-600"
+              >
+                <option value="Oral">Oral</option>
+                <option value="Intravenous">Intravenous</option>
+                <option value="Intramuscular">Intramuscular</option>
+                <option value="Topical">Topical</option>
+                <option value="Inhalation">Inhalation</option>
+                <option value="Ophthalmic">Ophthalmic</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">
+                Reference Source
+              </label>
+              <input
+                type="text"
+                value={newMedForm.referenceSource}
+                onChange={(e) => setNewMedForm({ ...newMedForm, referenceSource: e.target.value })}
+                placeholder="e.g. NLEM 2022 / IP / WHO ATC"
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-600"
+              />
+            </div>
+
+            <div className="flex items-center pt-5">
+              <label className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={newMedForm.isPrescriptionRequired}
+                  onChange={(e) => setNewMedForm({ ...newMedForm, isPrescriptionRequired: e.target.checked })}
+                  className="rounded text-emerald-600 focus:ring-emerald-500 w-4 h-4"
+                />
+                <span>Prescription Required (Schedule H / Rx)</span>
+              </label>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-slate-700 mb-1">
+              Description (Optional)
+            </label>
+            <textarea
+              rows={2}
+              value={newMedForm.description}
+              onChange={(e) => setNewMedForm({ ...newMedForm, description: e.target.value })}
+              placeholder="Standard clinical formulation details..."
+              className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-medium focus:outline-none focus:ring-2 focus:ring-emerald-600"
+            />
+          </div>
+
+          <div className="pt-3 flex justify-end gap-2 border-t border-slate-100">
+            <button
+              type="button"
+              onClick={() => setIsAddMedModalOpen(false)}
+              className="px-4 py-2 border border-slate-300 text-slate-700 rounded-xl text-xs font-semibold"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="px-5 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold transition-colors"
+            >
+              Save Medicine to Catalog
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* FEATURE 5.2: Add Additional Variant Modal */}
+      <Modal
+        isOpen={isAddVariantModalOpen}
+        onClose={() => setIsAddVariantModalOpen(false)}
+        title={`Add Formulation Variant to ${targetMedForVariant?.generic_name || 'Medicine'}`}
+      >
+        <form onSubmit={handleAddVariant} className="space-y-4">
+          <p className="text-xs text-slate-500">
+            Add another verified strength or dosage form to <strong>{targetMedForVariant?.generic_name}</strong> (e.g. 650 mg Tablet, or 125 mg/5 mL Oral Suspension).
+          </p>
+
+          {medActionError && (
+            <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700">
+              {medActionError}
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">
+                Strength *
+              </label>
+              <input
+                type="text"
+                required
+                value={newVariantForm.strength}
+                onChange={(e) => setNewVariantForm({ ...newVariantForm, strength: e.target.value })}
+                placeholder="e.g. 650 mg, or 120 mg/5 mL"
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-600"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">
+                Dosage Form *
+              </label>
+              <select
+                required
+                value={newVariantForm.dosageForm}
+                onChange={(e) => setNewVariantForm({ ...newVariantForm, dosageForm: e.target.value })}
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-600"
+              >
+                <option value="Tablet">Tablet</option>
+                <option value="Capsule">Capsule</option>
+                <option value="Syrup">Syrup</option>
+                <option value="Oral Suspension">Oral Suspension</option>
+                <option value="Injection">Injection</option>
+                <option value="Ointment">Ointment</option>
+                <option value="Cream">Cream</option>
+                <option value="Eye Drops">Eye Drops</option>
+                <option value="Inhaler">Inhaler</option>
+                <option value="Powder">Powder</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">
+                Route
+              </label>
+              <select
+                value={newVariantForm.route}
+                onChange={(e) => setNewVariantForm({ ...newVariantForm, route: e.target.value })}
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-600"
+              >
+                <option value="Oral">Oral</option>
+                <option value="Intravenous">Intravenous</option>
+                <option value="Intramuscular">Intramuscular</option>
+                <option value="Topical">Topical</option>
+                <option value="Inhalation">Inhalation</option>
+                <option value="Ophthalmic">Ophthalmic</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">
+                Reference Source
+              </label>
+              <input
+                type="text"
+                value={newVariantForm.referenceSource}
+                onChange={(e) => setNewVariantForm({ ...newVariantForm, referenceSource: e.target.value })}
+                placeholder="e.g. NLEM 2022 / IP"
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-600"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-slate-700 mb-1">
+              Variant Specific Composition
+            </label>
+            <input
+              type="text"
+              value={newVariantForm.composition}
+              onChange={(e) => setNewVariantForm({ ...newVariantForm, composition: e.target.value })}
+              placeholder={`e.g. ${targetMedForVariant?.generic_name || 'Active Ingredient'} ${newVariantForm.strength}`}
+              className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-medium focus:outline-none focus:ring-2 focus:ring-emerald-600"
+            />
+          </div>
+
+          <div className="pt-3 flex justify-end gap-2 border-t border-slate-100">
+            <button
+              type="button"
+              onClick={() => setIsAddVariantModalOpen(false)}
+              className="px-4 py-2 border border-slate-300 text-slate-700 rounded-xl text-xs font-semibold"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="px-5 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold transition-colors"
+            >
+              Add Variant
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* FEATURE 5.3: Edit Medicine Modal */}
+      <Modal
+        isOpen={isEditMedModalOpen}
+        onClose={() => setIsEditMedModalOpen(false)}
+        title={`Edit Medicine: ${targetMedForEdit?.generic_name || ''}`}
+      >
+        <form onSubmit={handleSaveEditMedicine} className="space-y-4 max-h-[75vh] overflow-y-auto pr-1">
+          {medActionError && (
+            <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700">
+              {medActionError}
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">
+                Generic Name *
+              </label>
+              <input
+                type="text"
+                required
+                value={editMedForm.genericName}
+                onChange={(e) => setEditMedForm({ ...editMedForm, genericName: e.target.value })}
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-600"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">
+                Display Name *
+              </label>
+              <input
+                type="text"
+                required
+                value={editMedForm.displayName}
+                onChange={(e) => setEditMedForm({ ...editMedForm, displayName: e.target.value })}
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-600"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-slate-700 mb-1">
+              Therapeutic Category *
+            </label>
+            <select
+              required
+              value={editMedForm.category}
+              onChange={(e) => setEditMedForm({ ...editMedForm, category: e.target.value })}
+              className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-600"
+            >
+              {THERAPEUTIC_CATEGORIES.map((c) => (
+                <option key={c.id} value={c.name}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">
+                Active Ingredient
+              </label>
+              <input
+                type="text"
+                value={editMedForm.activeIngredient}
+                onChange={(e) => setEditMedForm({ ...editMedForm, activeIngredient: e.target.value })}
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-600"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">
+                Complete Composition
+              </label>
+              <input
+                type="text"
+                value={editMedForm.composition}
+                onChange={(e) => setEditMedForm({ ...editMedForm, composition: e.target.value })}
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-600"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">
+                Strength / Form
+              </label>
+              <input
+                type="text"
+                value={editMedForm.strengthForm}
+                onChange={(e) => setEditMedForm({ ...editMedForm, strengthForm: e.target.value })}
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-600"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">
+                Dosage Form
+              </label>
+              <input
+                type="text"
+                value={editMedForm.dosageForm}
+                onChange={(e) => setEditMedForm({ ...editMedForm, dosageForm: e.target.value })}
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-600"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">
+                Route
+              </label>
+              <input
+                type="text"
+                value={editMedForm.route}
+                onChange={(e) => setEditMedForm({ ...editMedForm, route: e.target.value })}
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-600"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">
+                Reference Source
+              </label>
+              <input
+                type="text"
+                value={editMedForm.referenceSource}
+                onChange={(e) => setEditMedForm({ ...editMedForm, referenceSource: e.target.value })}
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-600"
+              />
+            </div>
+
+            <div className="flex items-center pt-5">
+              <label className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={editMedForm.isPrescriptionRequired}
+                  onChange={(e) => setEditMedForm({ ...editMedForm, isPrescriptionRequired: e.target.checked })}
+                  className="rounded text-emerald-600 focus:ring-emerald-500 w-4 h-4"
+                />
+                <span>Prescription Required</span>
+              </label>
+            </div>
+          </div>
+
+          <div className="pt-3 flex justify-end gap-2 border-t border-slate-100">
+            <button
+              type="button"
+              onClick={() => setIsEditMedModalOpen(false)}
+              className="px-4 py-2 border border-slate-300 text-slate-700 rounded-xl text-xs font-semibold"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="px-5 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold transition-colors"
+            >
+              Save Changes
+            </button>
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 };

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { LogOut, User, Store, ShieldCheck, Search, ShoppingBag, Edit2 } from 'lucide-react';
+import { LogOut, User, Store, ShieldCheck, Search, ShoppingBag, Edit2, BookOpen } from 'lucide-react';
 import { EditCustomerProfileModal } from './EditCustomerProfileModal';
 
 export const Navbar: React.FC = () => {
@@ -16,6 +16,7 @@ export const Navbar: React.FC = () => {
   };
 
   const isSearchActive = location.pathname === '/search';
+  const isCatalogActive = location.pathname.startsWith('/catalog');
   const isPharmacyDashboardActive = location.pathname.startsWith('/pharmacy');
   const isAdminDashboardActive = location.pathname.startsWith('/admin');
 
@@ -43,6 +44,16 @@ export const Navbar: React.FC = () => {
           >
             <Search className="w-4 h-4" />
             Find medicine
+          </Link>
+
+          <Link
+            to="/catalog"
+            className={`flex items-center gap-1.5 transition-colors ${
+              isCatalogActive ? 'text-emerald-700 font-semibold' : 'hover:text-slate-900'
+            }`}
+          >
+            <BookOpen className="w-4 h-4 text-emerald-600" />
+            Medicine Catalog
           </Link>
 
           {isCustomer && (

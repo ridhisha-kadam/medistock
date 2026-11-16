@@ -16,7 +16,11 @@ import {
   Loader2, 
   ArrowLeft,
   Edit3,
-  User
+  User,
+  AlertCircle,
+  Timer,
+  CheckCircle2,
+  Info
 } from 'lucide-react';
 
 export const CustomerReservationsPage: React.FC = () => {
@@ -28,6 +32,7 @@ export const CustomerReservationsPage: React.FC = () => {
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [selectedBill, setSelectedBill] = useState<Bill | null>(null);
   const [isEditProfileOpen, setIsEditProfileOpen] = useState<boolean>(false);
+  const [currentTime, setCurrentTime] = useState<number>(Date.now());
 
   useEffect(() => {
     if (!user) {
@@ -35,12 +40,22 @@ export const CustomerReservationsPage: React.FC = () => {
       return;
     }
     loadReservations();
+
+    // Live timer update every 30 seconds for accurate countdown
+    const timerInterval = setInterval(() => {
+      setCurrentTime(Date.now());
+    }, 30000);
+
+    return () => clearInterval(timerInterval);
   }, [user]);
 
   const loadReservations = async () => {
     if (!user) return;
     setIsLoading(true);
     try {
+      // First ensure expired reservations are processed and stock restored
+      await api.checkAndExpireReservations();
+
       const userBills = await api.getUserBills(user.id);
       setBills(userBills);
 
@@ -78,6 +93,36 @@ export const CustomerReservationsPage: React.FC = () => {
     } catch (e: any) {
       alert(e.message || 'Could not retrieve receipt.');
     }
+  };
+
+  // 48-Hour countdown helper
+  const getRemainingTime = (res: Reservation) => {
+    const expiresAt = res.expires_at 
+      ? new Date(res.expires_at).getTime() 
+      : new Date(res.created_at).getTime() + 48 * 60 * 60 * 1000;
+    const diffMs = expiresAt - currentTime;
+
+    if (res.status === 'EXPIRED' || diffMs <= 0) {
+      return {
+        isExpired: true,
+        isApproaching: false,
+        text: 'Expired',
+        hours: 0,
+        minutes: 0,
+      };
+    }
+
+    const hours = Math.floor(diffMs / (1000 * 60 * 60));
+    const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+    const isApproaching = hours < 12;
+
+    return {
+      isExpired: false,
+      isApproaching,
+      text: `${hours}h ${minutes}m left`,
+      hours,
+      minutes,
+    };
   };
 
   if (isLoading) {
@@ -143,6 +188,21 @@ export const CustomerReservationsPage: React.FC = () => {
         </div>
       )}
 
+      {/* 48-Hour Pickup Expiry Policy Alert Banner (Section 7 & 8) */}
+      <div className="bg-emerald-50 border border-emerald-200/90 rounded-2xl p-4 mb-6 shadow-sm flex items-start gap-3.5">
+        <div className="w-9 h-9 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0">
+          <Clock className="w-5 h-5" />
+        </div>
+        <div>
+          <h4 className="text-sm font-bold text-emerald-900 mb-0.5">
+            48-Hour Counter Pickup Policy
+          </h4>
+          <p className="text-xs text-emerald-800 leading-relaxed">
+            Please collect your medicine within <strong>48 hours</strong> of reservation. Once the 48-hour window elapses, reservations expire automatically and reserved stock is safely returned to pharmacy inventory for other patients.
+          </p>
+        </div>
+      </div>
+
       {reservations.length === 0 ? (
         /* Empty State per Section 4 */
         <div className="bg-white rounded-2xl p-12 text-center border border-slate-200 shadow-sm max-w-xl mx-auto my-8">
@@ -162,56 +222,109 @@ export const CustomerReservationsPage: React.FC = () => {
         </div>
       ) : (
         <div className="space-y-4">
-          {reservations.map((res) => (
-            <div
-              key={res.id}
-              className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm hover:border-emerald-200 transition-all flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4"
-            >
-              <div>
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="font-bold text-slate-900 text-base">
-                    {res.medicine?.display_name || 'Prescription Medicine'}
-                  </span>
-                  <StatusBadge type="reservation" status={res.status} />
+          {reservations.map((res) => {
+            const remaining = getRemainingTime(res);
+            const isActive = res.status === 'PENDING' || res.status === 'RESERVED' || res.status === 'ACCEPTED' || res.status === 'READY_FOR_COLLECTION';
+
+            return (
+              <div
+                key={res.id}
+                className={`bg-white p-5 rounded-2xl border transition-all flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 ${
+                  res.status === 'EXPIRED' 
+                    ? 'border-rose-200/80 bg-rose-50/20' 
+                    : remaining.isApproaching && isActive
+                    ? 'border-amber-300 bg-amber-50/20'
+                    : 'border-slate-200 hover:border-emerald-200 shadow-sm'
+                }`}
+              >
+                <div className="flex-1">
+                  <div className="flex flex-wrap items-center gap-2 mb-1">
+                    <span className="font-bold text-slate-900 text-base">
+                      {res.medicine?.display_name || 'Prescription Medicine'}
+                    </span>
+                    {res.variant_details && (
+                      <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                        {res.variant_details.strength} • {res.variant_details.dosage_form}
+                      </span>
+                    )}
+                    <StatusBadge type="reservation" status={res.status} />
+                  </div>
+
+                  <p className="text-xs font-semibold text-emerald-800">
+                    {res.pharmacy?.name || 'Local Pharmacy'}
+                  </p>
+
+                  <p className="text-xs text-slate-500 flex items-center gap-1 mt-0.5">
+                    <MapPin className="w-3.5 h-3.5 text-slate-400" />
+                    {res.pharmacy?.address}, {res.pharmacy?.city}
+                  </p>
+
+                  <div className="text-xs text-slate-600 mt-2 flex flex-wrap items-center gap-4">
+                    <span>Reserved Quantity: <strong>{res.quantity}</strong></span>
+                    <span>Unit Price: <strong>₹{res.unit_price}</strong></span>
+                    <span>Total Amount: <strong className="text-emerald-700">₹{res.total_price}</strong></span>
+                  </div>
+
+                  {/* 48-Hour Live Countdown / Expiry Status Display */}
+                  {isActive && (
+                    <div className="mt-2.5 flex flex-wrap items-center gap-2">
+                      <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold ${
+                        remaining.isApproaching
+                          ? 'bg-amber-100 text-amber-900 border border-amber-300'
+                          : 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                      }`}>
+                        <Timer className="w-3.5 h-3.5" />
+                        {remaining.isApproaching ? `Approaching Deadline: ${remaining.text}` : `Collect within: ${remaining.text}`}
+                      </span>
+                      <span className="text-[11px] text-slate-500">
+                        (Expires: {new Date(res.expires_at || new Date(res.created_at).getTime() + 48*60*60*1000).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })})
+                      </span>
+                    </div>
+                  )}
+
+                  {res.status === 'EXPIRED' && (
+                    <div className="mt-2.5 p-2.5 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-800 flex items-center gap-2">
+                      <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                      <span>
+                        <strong>Expired:</strong> 48-hour pickup window has passed. Reserved medicine stock has been returned to pharmacy inventory.
+                      </span>
+                    </div>
+                  )}
+
+                  {res.status === 'COMPLETED' && (
+                    <div className="mt-2 flex items-center gap-1.5 text-xs font-semibold text-emerald-700">
+                      <CheckCircle2 className="w-4 h-4" />
+                      <span>Collected on {new Date(res.collected_at || res.created_at).toLocaleDateString()}</span>
+                    </div>
+                  )}
                 </div>
 
-                <p className="text-xs font-semibold text-emerald-800">
-                  {res.pharmacy?.name || 'Local Pharmacy'}
-                </p>
-
-                <p className="text-xs text-slate-500 flex items-center gap-1 mt-0.5">
-                  <MapPin className="w-3.5 h-3.5 text-slate-400" />
-                  {res.pharmacy?.address}, {res.pharmacy?.city}
-                </p>
-
-                <div className="text-xs text-slate-600 mt-2 flex flex-wrap items-center gap-4">
-                  <span>Reserved Quantity: <strong>{res.quantity}</strong></span>
-                  <span>Unit Price: <strong>₹{res.unit_price}</strong></span>
-                  <span>Total Amount: <strong className="text-emerald-700">₹{res.total_price}</strong></span>
+                <div className="flex items-center gap-2 shrink-0">
+                  {res.status === 'COMPLETED' ? (
+                    <button
+                      onClick={() => handleViewReceipt(res.id)}
+                      className="flex items-center gap-1.5 px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold rounded-xl transition-colors shadow-sm"
+                    >
+                      <Printer className="w-3.5 h-3.5" />
+                      View Bill Receipt
+                    </button>
+                  ) : isActive ? (
+                    <button
+                      onClick={() => handleCancelReservation(res.id)}
+                      className="flex items-center gap-1 px-3 py-1.5 border border-rose-300 text-rose-700 hover:bg-rose-50 text-xs font-semibold rounded-xl transition-colors"
+                    >
+                      <Ban className="w-3.5 h-3.5" />
+                      Cancel
+                    </button>
+                  ) : res.status === 'EXPIRED' ? (
+                    <span className="text-[11px] text-slate-400 font-medium italic">
+                      Expired (Stock Released)
+                    </span>
+                  ) : null}
                 </div>
               </div>
-
-              <div className="flex items-center gap-2 shrink-0">
-                {res.status === 'COMPLETED' ? (
-                  <button
-                    onClick={() => handleViewReceipt(res.id)}
-                    className="flex items-center gap-1.5 px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold rounded-xl transition-colors shadow-sm"
-                  >
-                    <Printer className="w-3.5 h-3.5" />
-                    View Bill Receipt
-                  </button>
-                ) : res.status !== 'CANCELLED' && res.status !== 'REJECTED' ? (
-                  <button
-                    onClick={() => handleCancelReservation(res.id)}
-                    className="flex items-center gap-1 px-3 py-1.5 border border-rose-300 text-rose-700 hover:bg-rose-50 text-xs font-semibold rounded-xl transition-colors"
-                  >
-                    <Ban className="w-3.5 h-3.5" />
-                    Cancel
-                  </button>
-                ) : null}
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 

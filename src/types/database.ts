@@ -9,6 +9,7 @@ export type ReservationStatus =
   | 'ACCEPTED' 
   | 'READY_FOR_COLLECTION' 
   | 'COMPLETED' 
+  | 'EXPIRED' 
   | 'REJECTED' 
   | 'CANCELLED';
 
@@ -50,15 +51,44 @@ export interface Pharmacy {
   updated_at: string;
 }
 
+export interface MedicineVariant {
+  id: string;
+  medicine_id: string;
+  strength: string; // e.g. "500 mg", "650 mg", "120 mg/5 mL"
+  dosage_form: string; // "Tablet", "Capsule", "Oral Suspension", "Syrup", "Injection", "Ointment", "Cream", "Drops", etc.
+  route: string; // "Oral", "Intravenous", "Topical", "Ophthalmic", "Inhalation", etc.
+  composition: string;
+  reference_source?: string;
+  is_prescription_required?: boolean;
+  created_at?: string;
+}
+
+export interface TherapeuticCategory {
+  id: string;
+  name: string;
+  description?: string;
+  icon?: string;
+  medicine_count?: number;
+}
+
 export interface Medicine {
   id: string;
   display_name: string;
   brand_name?: string | null;
   generic_name: string;
+  active_ingredient?: string;
+  composition?: string;
   category: string;
   strength_form: string;
+  dosage_form?: string;
+  route?: string;
   description?: string | null;
+  combination_ingredients?: string | null;
+  reference_source?: string | null;
+  is_prescription_required?: boolean;
+  image_url?: string | null;
   catalogue_status: 'ACTIVE' | 'INACTIVE';
+  variants?: MedicineVariant[];
   created_by?: string | null;
   created_at: string;
 }
@@ -84,12 +114,17 @@ export interface Reservation {
   user_id: string;
   pharmacy_id: string;
   medicine_id: string;
+  variant_id?: string | null;
+  variant_details?: string | null; // e.g. "500 mg Tablet"
   quantity: number;
   unit_price: number;
   total_price: number;
   status: ReservationStatus;
   notes?: string | null;
   created_at: string;
+  expires_at: string; // ISO string = created_at + 48 hours
+  collected_at?: string | null;
+  stock_restored?: boolean; // Ensures 48h stock restoration happens exactly once
   updated_at: string;
   // Joined relations
   user?: Profile;

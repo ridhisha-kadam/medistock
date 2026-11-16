@@ -1,8 +1,9 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { Navbar } from './components/Navbar';
 import { Footer } from './components/Footer';
+import { api } from './services/api';
 
 // Pages
 import { HomePage } from './pages/HomePage';
@@ -14,6 +15,7 @@ import { PendingVerificationPage } from './pages/PendingVerificationPage';
 import { PharmacyDashboardPage } from './pages/PharmacyDashboardPage';
 import { AdminDashboardPage } from './pages/AdminDashboardPage';
 import { CustomerReservationsPage } from './pages/CustomerReservationsPage';
+import { MedicineCatalogPage } from './pages/MedicineCatalogPage';
 
 // Route guards
 const ProtectedPharmacyRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -37,9 +39,31 @@ const ProtectedCustomerRoute: React.FC<{ children: React.ReactNode }> = ({ child
   return <>{children}</>;
 };
 
+// Automatic 48-Hour Reservation Expiry Watcher
+const AutoExpiryWatcher: React.FC = () => {
+  useEffect(() => {
+    // Run immediately on mount
+    api.checkAndExpireReservations().catch((err) => {
+      console.warn('Auto-expiry check error:', err);
+    });
+
+    // Run every 60 seconds
+    const interval = setInterval(() => {
+      api.checkAndExpireReservations().catch((err) => {
+        console.warn('Auto-expiry check interval error:', err);
+      });
+    }, 60000);
+
+    return () => clearInterval(interval);
+  }, []);
+
+  return null;
+};
+
 export const App: React.FC = () => {
   return (
     <AuthProvider>
+      <AutoExpiryWatcher />
       <BrowserRouter>
         <div className="flex flex-col min-h-screen bg-slate-50 font-sans selection:bg-emerald-200 selection:text-emerald-900">
           <Navbar />
@@ -48,6 +72,7 @@ export const App: React.FC = () => {
               {/* Public Discovery Routes */}
               <Route path="/" element={<HomePage />} />
               <Route path="/search" element={<SearchResultsPage />} />
+              <Route path="/catalog" element={<MedicineCatalogPage />} />
               <Route path="/pharmacy/:id" element={<PharmacyDetailsPage />} />
 
               {/* Authentication Routes */}

@@ -2,6 +2,8 @@ import {
   Profile, 
   Pharmacy, 
   Medicine, 
+  MedicineVariant,
+  TherapeuticCategory,
   InventoryItem, 
   Reservation, 
   Bill, 
@@ -14,6 +16,12 @@ import {
   ReservationStatus
 } from '../types/database';
 import { supabase, isLiveSupabaseConfigured, ADMIN_SETUP_SECRET } from './supabase';
+import { 
+  PREDEFINED_MEDICINES, 
+  THERAPEUTIC_CATEGORIES, 
+  searchCatalogMedicines, 
+  getCategoryCounts 
+} from '../data/medicineCatalogData';
 
 // Helper for unique IDs
 export const generateId = () => {
@@ -163,6 +171,19 @@ class LocalDatabaseStore {
     } catch (e) {
       console.warn('Could not load local database state:', e);
     }
+
+    // FEATURE 1: Ensure all 245 predefined generic medicines are populated on first open
+    if (!this.medicines || this.medicines.length < 200) {
+      const existingNames = new Set((this.medicines || []).map(m => m.generic_name.toLowerCase()));
+      const merged = [...(this.medicines || [])];
+      for (const pre of PREDEFINED_MEDICINES) {
+        if (!existingNames.has(pre.generic_name.toLowerCase())) {
+          merged.push({ ...pre });
+        }
+      }
+      this.medicines = merged;
+      this.save();
+    }
   }
 
   save() {
@@ -187,14 +208,14 @@ class LocalDatabaseStore {
   clearAllData() {
     this.profiles = [];
     this.pharmacies = [];
-    this.medicines = [];
+    this.medicines = [...PREDEFINED_MEDICINES];
     this.inventory = [];
     this.reservations = [];
     this.bills = [];
     this.auditLogs = [];
     this.alerts = [];
     this.passwords = {};
-    localStorage.removeItem('medistock_db_state');
+    this.save();
   }
 }
 
@@ -748,7 +769,7 @@ export const api = {
   },
 
   /**
-   * API 11: /api/medicines (POST)
+   * API 11: /api/medicines (POST) - Add new medicine to catalog with duplicate prevention
    */
   async createMedicine(data: {
     displayName: string;
@@ -757,22 +778,61 @@ export const api = {
     category: string;
     strengthForm: string;
     description?: string;
+    activeIngredient?: string;
+    composition?: string;
+    dosageForm?: string;
+    route?: string;
+    combinationIngredients?: string;
+    referenceSource?: string;
+    isPrescriptionRequired?: boolean;
+    variants?: MedicineVariant[];
     createdBy?: string;
   }): Promise<Medicine> {
     if (!data.displayName?.trim()) throw new Error('Medicine Display Name is required.');
-    if (!data.genericName?.trim()) throw new Error('Generic Name / Composition is required.');
-    if (!data.category?.trim()) throw new Error('Category is required.');
-    if (!data.strengthForm?.trim()) throw new Error('Strength / Form is required.');
+    if (!data.genericName?.trim()) throw new Error('Generic Name is required.');
+    if (!data.category?.trim()) throw new Error('Therapeutic Category is required.');
+    if (!data.strengthForm?.trim()) throw new Error('Strength / Formulation is required.');
+
+    // FEATURE 5.7: Prevent duplicate generic entries
+    const existing = localDB.medicines.find(
+      m => m.generic_name.trim().toLowerCase() === data.genericName.trim().toLowerCase()
+    );
+    if (existing) {
+      throw new Error(`A catalog medicine with generic name "${data.genericName}" already exists.`);
+    }
+
+    const medId = generateId();
+    const defaultVariants: MedicineVariant[] = data.variants && data.variants.length > 0 ? data.variants : [
+      {
+        id: generateId(),
+        medicine_id: medId,
+        strength: data.strengthForm.split(' ')[0] || data.strengthForm,
+        dosage_form: data.dosageForm?.trim() || 'Tablet',
+        route: data.route?.trim() || 'Oral',
+        composition: data.composition?.trim() || `${data.genericName.trim()} ${data.strengthForm.trim()}`,
+        reference_source: data.referenceSource?.trim() || 'NLEM 2022 / IP',
+        is_prescription_required: data.isPrescriptionRequired !== false,
+        created_at: new Date().toISOString()
+      }
+    ];
 
     const newMed: Medicine = {
-      id: generateId(),
+      id: medId,
       display_name: data.displayName.trim(),
       brand_name: data.brandName?.trim() || null,
       generic_name: data.genericName.trim(),
+      active_ingredient: data.activeIngredient?.trim() || data.genericName.trim(),
+      composition: data.composition?.trim() || `${data.genericName.trim()} ${data.strengthForm.trim()}`,
       category: data.category.trim(),
       strength_form: data.strengthForm.trim(),
+      dosage_form: data.dosageForm?.trim() || 'Tablet',
+      route: data.route?.trim() || 'Oral',
       description: data.description?.trim() || null,
+      combination_ingredients: data.combinationIngredients?.trim() || null,
+      reference_source: data.referenceSource?.trim() || 'NLEM 2022 / IP',
+      is_prescription_required: data.isPrescriptionRequired !== false,
       catalogue_status: 'ACTIVE',
+      variants: defaultVariants,
       created_by: data.createdBy || null,
       created_at: new Date().toISOString(),
     };
@@ -789,6 +849,108 @@ export const api = {
     localDB.medicines.push(newMed);
     localDB.save();
     return newMed;
+  },
+
+  /**
+   * Add variant strength / formulation to existing medicine
+   */
+  async addMedicineVariant(medicineId: string, variant: Omit<MedicineVariant, 'id' | 'medicine_id'>): Promise<MedicineVariant> {
+    const med = await this.getMedicineById(medicineId);
+    if (!med) throw new Error('Medicine not found.');
+
+    const variants = med.variants || [];
+    // Prevent duplicate variant
+    const dup = variants.find(v => 
+      v.strength.trim().toLowerCase() === variant.strength.trim().toLowerCase() &&
+      v.dosage_form.trim().toLowerCase() === variant.dosage_form.trim().toLowerCase()
+    );
+    if (dup) {
+      throw new Error(`Variant "${variant.strength} ${variant.dosage_form}" already exists for this medicine.`);
+    }
+
+    const newVar: MedicineVariant = {
+      id: generateId(),
+      medicine_id: medicineId,
+      strength: variant.strength.trim(),
+      dosage_form: variant.dosage_form.trim(),
+      route: variant.route.trim(),
+      composition: variant.composition.trim(),
+      reference_source: variant.reference_source || med.reference_source || 'NLEM 2022 / IP',
+      is_prescription_required: variant.is_prescription_required !== false,
+      created_at: new Date().toISOString()
+    };
+
+    const updatedVariants = [...variants, newVar];
+    await this.updateMedicine(medicineId, { variants: updatedVariants });
+    return newVar;
+  },
+
+  /**
+   * Delete variant from medicine
+   */
+  async deleteMedicineVariant(medicineId: string, variantId: string): Promise<{ success: boolean }> {
+    const med = await this.getMedicineById(medicineId);
+    if (!med) throw new Error('Medicine not found.');
+
+    const variants = (med.variants || []).filter(v => v.id !== variantId);
+    if (variants.length === 0) {
+      throw new Error('A catalog medicine must maintain at least one formulation variant.');
+    }
+
+    await this.updateMedicine(medicineId, { variants });
+    return { success: true };
+  },
+
+  /**
+   * FEATURE 3: Case-Insensitive and Spelling-Exact Catalog Medicine Search
+   */
+  async searchCatalog(params: { query?: string; category?: string }): Promise<Medicine[]> {
+    const q = params.query?.trim() || '';
+    const cat = params.category?.trim();
+    const all = await this.getMedicines();
+
+    let list = all;
+    if (cat && cat !== 'All Categories') {
+      const normCat = cat.toLowerCase();
+      list = list.filter(m => m.category.toLowerCase() === normCat);
+    }
+
+    if (!q) return list;
+
+    const normQ = q.toLowerCase();
+    return list.filter(m => {
+      const normGen = m.generic_name.trim().toLowerCase();
+      const normDisp = m.display_name.trim().toLowerCase();
+      const normAct = (m.active_ingredient || '').trim().toLowerCase();
+      const normC = m.category.trim().toLowerCase();
+
+      // Exact match only (case-insensitive)
+      if (normGen === normQ || normDisp === normQ || normAct === normQ || normC === normQ) {
+        return true;
+      }
+
+      if (m.variants && m.variants.length > 0) {
+        return m.variants.some(v => {
+          const s1 = `${normGen} ${v.strength.toLowerCase()}`;
+          const s2 = `${normGen} ${v.strength.toLowerCase()} ${v.dosage_form.toLowerCase()}`;
+          return s1 === normQ || s2 === normQ;
+        });
+      }
+
+      return false;
+    });
+  },
+
+  /**
+   * Return therapeutic categories with live medicine counts
+   */
+  async getTherapeuticCategories(): Promise<(TherapeuticCategory & { count: number })[]> {
+    const meds = await this.getMedicines();
+    const counts = getCategoryCounts(meds);
+    return THERAPEUTIC_CATEGORIES.map(cat => ({
+      ...cat,
+      count: counts[cat.name] || 0
+    }));
   },
 
   /**
@@ -1066,12 +1228,27 @@ export const api = {
       if (params.inStockOnly && inv.quantity <= 0) continue;
 
       if (query) {
-        const matchesQuery =
-          medicine.display_name.toLowerCase().includes(query) ||
-          medicine.generic_name.toLowerCase().includes(query) ||
-          (medicine.brand_name && medicine.brand_name.toLowerCase().includes(query)) ||
-          medicine.category.toLowerCase().includes(query);
-        if (!matchesQuery) continue;
+        const normQ = query.trim().toLowerCase();
+        const normDisp = medicine.display_name.trim().toLowerCase();
+        const normGen = medicine.generic_name.trim().toLowerCase();
+        const normBrand = (medicine.brand_name || '').trim().toLowerCase();
+        const normCat = medicine.category.trim().toLowerCase();
+        const normStrength = medicine.strength_form.trim().toLowerCase();
+        const fullCombo = `${normGen} ${normStrength}`;
+
+        // FEATURE 3: Case-insensitive, spelling-exact matching ONLY (no fuzzy matching)
+        const isExactMatch =
+          normDisp === normQ ||
+          normGen === normQ ||
+          normBrand === normQ ||
+          normCat === normQ ||
+          fullCombo === normQ ||
+          (medicine.variants && medicine.variants.some(v => 
+            `${normGen} ${v.strength.toLowerCase()}` === normQ ||
+            `${normGen} ${v.strength.toLowerCase()} ${v.dosage_form.toLowerCase()}` === normQ
+          ));
+
+        if (!isExactMatch) continue;
       }
 
       if (loc) {
@@ -1193,12 +1370,14 @@ export const api = {
   // ----------------------------------------------------------------------------
 
   /**
-   * API 23: /api/reservations (POST) - Atomic Medicine Reservation & Stock Deduction
+   * API 23: /api/reservations (POST) - Atomic Medicine Reservation & Stock Deduction with 48h Expiry
    */
   async createReservation(data: {
     userId: string;
     pharmacyId: string;
     medicineId: string;
+    variantId?: string;
+    variantDetails?: string;
     quantity: number;
     notes?: string;
   }): Promise<{ success: boolean; reservation: Reservation }> {
@@ -1234,20 +1413,26 @@ export const api = {
     });
 
     const totalPrice = Math.round(currentItem.price * data.quantity * 100) / 100;
-    const now = new Date().toISOString();
+    const now = new Date();
+    // FEATURE 7: Exactly 48-Hour Reservation Expiry Window
+    const expiresAt = new Date(now.getTime() + 48 * 60 * 60 * 1000).toISOString();
 
     const newRes: Reservation = {
       id: generateId(),
       user_id: data.userId,
       pharmacy_id: data.pharmacyId,
       medicine_id: data.medicineId,
+      variant_id: data.variantId || null,
+      variant_details: data.variantDetails || null,
       quantity: data.quantity,
       unit_price: currentItem.price,
       total_price: totalPrice,
       status: 'PENDING',
       notes: data.notes?.trim() || null,
-      created_at: now,
-      updated_at: now,
+      created_at: now.toISOString(),
+      expires_at: expiresAt,
+      stock_restored: false,
+      updated_at: now.toISOString(),
     };
 
     if (isLiveSupabaseConfigured()) {
@@ -1265,9 +1450,65 @@ export const api = {
   },
 
   /**
+   * FEATURE 7: Automatic 48-Hour Reservation Expiry & Single Stock Restoration
+   * Scans active reservations, expires those older than 48 hours, and restores stock exactly once.
+   */
+  async checkAndExpireReservations(): Promise<number> {
+    const nowTime = Date.now();
+    let expiredCount = 0;
+
+    for (const res of localDB.reservations) {
+      const isPending = res.status === 'PENDING' || res.status === 'ACCEPTED' || res.status === 'READY_FOR_COLLECTION';
+      const expiresAtMs = res.expires_at 
+        ? new Date(res.expires_at).getTime() 
+        : new Date(res.created_at).getTime() + (48 * 60 * 60 * 1000);
+
+      if (isPending && nowTime >= expiresAtMs) {
+        res.status = 'EXPIRED';
+        res.updated_at = new Date().toISOString();
+
+        // Restore stock to pharmacy inventory exactly once!
+        if (!res.stock_restored) {
+          const inv = localDB.inventory.find(i => i.pharmacy_id === res.pharmacy_id && i.medicine_id === res.medicine_id);
+          if (inv) {
+            inv.quantity += res.quantity;
+            inv.status = inv.quantity >= 10 ? 'AVAILABLE' : (inv.quantity > 0 ? 'LOW_STOCK' : 'OUT_OF_STOCK');
+            inv.last_updated = new Date().toISOString();
+          }
+          res.stock_restored = true;
+        }
+
+        localDB.auditLogs.push({
+          id: generateId(),
+          action: 'RESERVATION_AUTO_EXPIRED_48H',
+          entity_type: 'RESERVATIONS',
+          entity_id: res.id,
+          details: {
+            medicine_id: res.medicine_id,
+            pharmacy_id: res.pharmacy_id,
+            quantity_restored: res.quantity,
+            reason: '48-hour customer collection window elapsed'
+          },
+          created_at: new Date().toISOString()
+        });
+
+        expiredCount++;
+      }
+    }
+
+    if (expiredCount > 0) {
+      localDB.save();
+    }
+
+    return expiredCount;
+  },
+
+  /**
    * API 24: /api/reservations/{id} (GET)
    */
   async getReservationById(id: string): Promise<Reservation | null> {
+    await this.checkAndExpireReservations();
+
     if (isLiveSupabaseConfigured()) {
       try {
         const { data } = await supabase
@@ -1298,13 +1539,17 @@ export const api = {
     const res = await this.getReservationById(id);
     if (!res) throw new Error('Reservation not found.');
     if (res.status === 'COMPLETED') throw new Error('Completed reservations cannot be cancelled.');
+    if (res.status === 'EXPIRED') throw new Error('Expired reservations cannot be cancelled.');
 
-    // Restore stock
-    const inv = await this.getInventory({ pharmacyId: res.pharmacy_id, medicineId: res.medicine_id });
-    if (inv.length > 0) {
-      await this.updateInventoryItem(inv[0].id, {
-        quantity: inv[0].quantity + res.quantity,
-      });
+    // Restore stock if not already restored
+    if (!res.stock_restored) {
+      const inv = await this.getInventory({ pharmacyId: res.pharmacy_id, medicineId: res.medicine_id });
+      if (inv.length > 0) {
+        await this.updateInventoryItem(inv[0].id, {
+          quantity: inv[0].quantity + res.quantity,
+        });
+      }
+      res.stock_restored = true;
     }
 
     if (isLiveSupabaseConfigured()) {
@@ -1319,6 +1564,7 @@ export const api = {
     const idx = localDB.reservations.findIndex(r => r.id === id);
     if (idx !== -1) {
       localDB.reservations[idx].status = 'CANCELLED';
+      localDB.reservations[idx].stock_restored = true;
       localDB.save();
     }
     return { success: true, message: 'Reservation cancelled and stock restored.' };
@@ -1335,20 +1581,29 @@ export const api = {
     const res = await this.getReservationById(id);
     if (!res) throw new Error('Reservation not found.');
 
+    if (res.status === 'EXPIRED') {
+      throw new Error('Expired reservations cannot be collected or updated.');
+    }
+    if (res.status === 'CANCELLED') {
+      throw new Error('Cancelled reservations cannot be modified.');
+    }
+
     const now = new Date().toISOString();
 
-    if (newStatus === 'REJECTED' && res.status !== 'REJECTED') {
+    if (newStatus === 'REJECTED' && res.status !== 'REJECTED' && !res.stock_restored) {
       const inv = await this.getInventory({ pharmacyId: res.pharmacy_id, medicineId: res.medicine_id });
       if (inv.length > 0) {
         await this.updateInventoryItem(inv[0].id, {
           quantity: inv[0].quantity + res.quantity,
         });
       }
+      res.stock_restored = true;
     }
 
     let generatedBill: Bill | undefined;
 
     if (newStatus === 'COMPLETED') {
+      res.collected_at = now;
       const billNum = 'BILL-' + now.slice(0, 10).replace(/-/g, '') + '-' + res.id.slice(0, 5).toUpperCase();
       generatedBill = {
         id: generateId(),
@@ -1377,7 +1632,11 @@ export const api = {
 
     if (isLiveSupabaseConfigured()) {
       try {
-        await supabase.from('reservations').update({ status: newStatus, updated_at: now }).eq('id', id);
+        await supabase.from('reservations').update({ 
+          status: newStatus, 
+          updated_at: now,
+          ...(newStatus === 'COMPLETED' ? { collected_at: now } : {})
+        }).eq('id', id);
         return { success: true, reservation: { ...res, status: newStatus }, bill: generatedBill };
       } catch (e) {
         console.warn('Supabase updateReservationStatus fallback:', e);
@@ -1388,6 +1647,7 @@ export const api = {
     if (idx !== -1) {
       localDB.reservations[idx].status = newStatus;
       localDB.reservations[idx].updated_at = now;
+      if (newStatus === 'COMPLETED') localDB.reservations[idx].collected_at = now;
       localDB.save();
     }
 
@@ -1522,7 +1782,7 @@ export const api = {
   // ----------------------------------------------------------------------------
 
   /**
-   * API 30: /api/admin/dashboard (GET)
+   * API 30: /api/admin/dashboard (GET) - Enhanced with 200+ Catalog and 48h Reservation Metrics
    */
   async getAdminDashboardData(): Promise<{
     totalCustomers: number;
@@ -1532,55 +1792,47 @@ export const api = {
     rejectedPharmacies: number;
     disabledPharmacies: number;
     totalMedicines: number;
+    totalVariants: number;
+    totalCategories: number;
     totalInventoryListings: number;
     totalReservations: number;
+    activeReservations: number;
+    collectedReservations: number;
+    expiredReservations: number;
+    cancelledReservations: number;
     pharmacies: Pharmacy[];
+    medicines: Medicine[];
+    reservations: Reservation[];
     auditLogs: AuditLog[];
   }> {
-    if (isLiveSupabaseConfigured()) {
-      try {
-        const [
-          { data: profiles },
-          { data: pharms },
-          { data: meds },
-          { data: inv },
-          { data: res },
-          { data: logs }
-        ] = await Promise.all([
-          supabase.from('profiles').select('*'),
-          supabase.from('pharmacies').select('*'),
-          supabase.from('medicines').select('*'),
-          supabase.from('inventory').select('*'),
-          supabase.from('reservations').select('*'),
-          supabase.from('audit_logs').select('*').order('created_at', { ascending: false }).limit(30),
-        ]);
-
-        const allPharm = pharms || [];
-        const customers = (profiles || []).filter(p => p.role === 'CUSTOMER');
-
-        return {
-          totalCustomers: customers.length,
-          totalPharmacies: allPharm.length,
-          pendingPharmacies: allPharm.filter(p => p.verification_status === 'PENDING_VERIFICATION').length,
-          approvedPharmacies: allPharm.filter(p => p.verification_status === 'APPROVED').length,
-          rejectedPharmacies: allPharm.filter(p => p.verification_status === 'REJECTED').length,
-          disabledPharmacies: allPharm.filter(p => p.verification_status === 'DISABLED').length,
-          totalMedicines: (meds || []).length,
-          totalInventoryListings: (inv || []).length,
-          totalReservations: (res || []).length,
-          pharmacies: allPharm,
-          auditLogs: logs || [],
-        };
-      } catch (e) {
-        console.warn('Supabase getAdminDashboardData fallback:', e);
-      }
-    }
+    await this.checkAndExpireReservations();
 
     const customers = localDB.profiles.filter(p => p.role === 'CUSTOMER');
     const pending = localDB.pharmacies.filter(p => p.verification_status === 'PENDING_VERIFICATION');
     const approved = localDB.pharmacies.filter(p => p.verification_status === 'APPROVED');
     const rejected = localDB.pharmacies.filter(p => p.verification_status === 'REJECTED');
     const disabled = localDB.pharmacies.filter(p => p.verification_status === 'DISABLED');
+
+    const allMeds = localDB.medicines;
+    let varCount = 0;
+    const catSet = new Set<string>();
+    allMeds.forEach(m => {
+      catSet.add(m.category);
+      varCount += (m.variants && m.variants.length > 0) ? m.variants.length : 1;
+    });
+
+    const activeRes = localDB.reservations.filter(r => r.status === 'PENDING' || r.status === 'ACCEPTED' || r.status === 'READY_FOR_COLLECTION').length;
+    const collectedRes = localDB.reservations.filter(r => r.status === 'COMPLETED').length;
+    const expiredRes = localDB.reservations.filter(r => r.status === 'EXPIRED').length;
+    const cancelledRes = localDB.reservations.filter(r => r.status === 'CANCELLED').length;
+
+    const populatedReservations = localDB.reservations.map(r => ({
+      ...r,
+      user: localDB.profiles.find(p => p.id === r.user_id),
+      pharmacy: localDB.pharmacies.find(p => p.id === r.pharmacy_id),
+      medicine: localDB.medicines.find(m => m.id === r.medicine_id),
+      bill: localDB.bills.find(b => b.reservation_id === r.id),
+    })).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
     return {
       totalCustomers: customers.length,
@@ -1589,10 +1841,18 @@ export const api = {
       approvedPharmacies: approved.length,
       rejectedPharmacies: rejected.length,
       disabledPharmacies: disabled.length,
-      totalMedicines: localDB.medicines.length,
+      totalMedicines: allMeds.length,
+      totalVariants: varCount,
+      totalCategories: Math.max(catSet.size, 40),
       totalInventoryListings: localDB.inventory.length,
       totalReservations: localDB.reservations.length,
+      activeReservations: activeRes,
+      collectedReservations: collectedRes,
+      expiredReservations: expiredRes,
+      cancelledReservations: cancelledRes,
       pharmacies: [...localDB.pharmacies],
+      medicines: [...allMeds],
+      reservations: populatedReservations,
       auditLogs: [...localDB.auditLogs].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).slice(0, 30),
     };
   },
@@ -1705,6 +1965,8 @@ export const api = {
   },
 
   async getUserReservations(userId: string): Promise<Reservation[]> {
+    await this.checkAndExpireReservations();
+
     if (isLiveSupabaseConfigured()) {
       try {
         const { data } = await supabase
@@ -1731,6 +1993,8 @@ export const api = {
   },
 
   async getPharmacyReservations(pharmacyId: string): Promise<Reservation[]> {
+    await this.checkAndExpireReservations();
+
     if (isLiveSupabaseConfigured()) {
       try {
         const { data } = await supabase
