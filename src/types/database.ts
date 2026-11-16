@@ -100,6 +100,7 @@ export interface InventoryItem {
   quantity: number;
   price: number;
   expiry_date: string;
+  batch_number?: string | null;
   status: StockStatus;
   last_updated: string;
   updated_by?: string | null;
@@ -180,6 +181,8 @@ export interface SearchResultItem {
   brand_name?: string | null;
   category: string;
   strength_form: string;
+  composition?: string;
+  batch_number?: string | null;
   pharmacy_id: string;
   pharmacy_name: string;
   pharmacy_address: string;

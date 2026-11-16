@@ -43,6 +43,7 @@ export const MedicineCatalogPage: React.FC = () => {
   const [selectedMedicine, setSelectedMedicine] = useState<Medicine | null>(null);
   const [selectedVariant, setSelectedVariant] = useState<MedicineVariant | null>(null);
   const [pharmacyStock, setPharmacyStock] = useState<SearchResultItem[]>([]);
+  const [stockSortBy, setStockSortBy] = useState<'price' | 'stock' | 'distance'>('price');
   const [isLoadingStock, setIsLoadingStock] = useState<boolean>(false);
   const [reserveSuccess, setReserveSuccess] = useState<string | null>(null);
   const [reserveError, setReserveError] = useState<string | null>(null);
@@ -103,7 +104,7 @@ export const MedicineCatalogPage: React.FC = () => {
   };
 
   // Open Medicine Detail & Load Real Registered Pharmacy Stock
-  const handleOpenMedicine = async (med: Medicine) => {
+  const handleOpenMedicine = async (med: Medicine, sortByOverride?: 'price' | 'stock' | 'distance') => {
     setSelectedMedicine(med);
     const primaryVar = med.variants && med.variants.length > 0 ? med.variants[0] : null;
     setSelectedVariant(primaryVar);
@@ -111,16 +112,40 @@ export const MedicineCatalogPage: React.FC = () => {
     setReserveError(null);
     setIsLoadingStock(true);
 
+    const sortToUse = sortByOverride || stockSortBy;
+
     try {
-      // Feature 6: Query real verified pharmacies stocking this medicine
+      // Feature 3: Query real verified pharmacies stocking this medicine with quantity > 0
       const stockResults = await api.searchMedicine({
+        medicineId: med.id,
         query: med.generic_name,
-        inStockOnly: true
+        inStockOnly: true,
+        sortBy: sortToUse,
       });
-      setPharmacyStock(stockResults);
+      // Ensure strictly quantity > 0
+      setPharmacyStock(stockResults.filter(s => s.quantity > 0));
     } catch (err) {
       console.warn('Error fetching pharmacy stock:', err);
       setPharmacyStock([]);
+    } finally {
+      setIsLoadingStock(false);
+    }
+  };
+
+  const handleStockSortChange = async (newSort: 'price' | 'stock' | 'distance') => {
+    setStockSortBy(newSort);
+    if (!selectedMedicine) return;
+    setIsLoadingStock(true);
+    try {
+      const stockResults = await api.searchMedicine({
+        medicineId: selectedMedicine.id,
+        query: selectedMedicine.generic_name,
+        inStockOnly: true,
+        sortBy: newSort,
+      });
+      setPharmacyStock(stockResults.filter(s => s.quantity > 0));
+    } catch (err) {
+      console.warn('Error fetching pharmacy stock on sort:', err);
     } finally {
       setIsLoadingStock(false);
     }
@@ -167,27 +192,75 @@ export const MedicineCatalogPage: React.FC = () => {
     }
   };
 
-  // Exact spelling filtering (Feature 3)
-  const filterMedicinesExact = (medicines: Medicine[], query: string) => {
+  // Matches category taking into account full names, abbreviations (BP), and therapeutic aliases
+  const matchesCategory = (medCategory: string, catQuery: string): boolean => {
+    if (!medCategory || !catQuery) return false;
+    const mCat = medCategory.trim().toLowerCase();
+    const qCat = catQuery.trim().toLowerCase();
+    if (mCat === qCat) return true;
+
+    // Disease / therapeutic abbreviations and aliases
+    if (qCat === 'bp' || qCat === 'blood pressure' || qCat === 'hypertension') {
+      return mCat.includes('blood pressure') || mCat.includes('hypertension') || mCat.includes('bp');
+    }
+    if (qCat === 'sugar' || qCat === 'diabetes' || qCat === 'blood sugar') {
+      return mCat.includes('diabetes') || mCat.includes('blood sugar');
+    }
+    if (qCat === 'heart' || qCat === 'cardiac' || qCat === 'heart attack') {
+      return mCat.includes('heart');
+    }
+    if (qCat === 'fever' || qCat === 'temperature') return mCat.includes('fever');
+    if (qCat === 'pain' || qCat === 'pain relief' || qCat === 'body pain' || qCat === 'headache') return mCat.includes('pain');
+    if (qCat === 'cold' || qCat === 'cough' || qCat === 'cold and cough') return mCat.includes('cold') || mCat.includes('cough');
+    if (qCat === 'asthma' || qCat === 'copd' || qCat === 'breathing') return mCat.includes('asthma') || mCat.includes('copd');
+    if (qCat === 'thyroid') return mCat.includes('thyroid');
+    if (qCat === 'acidity' || qCat === 'gastric' || qCat === 'gas') return mCat.includes('gastric') || mCat.includes('acidity');
+    if (qCat === 'kidney') return mCat.includes('kidney');
+    if (qCat === 'liver') return mCat.includes('liver');
+    if (qCat === 'skin') return mCat.includes('skin');
+    if (qCat === 'eye') return mCat.includes('eye');
+    if (qCat === 'ent' || qCat === 'ear' || qCat === 'nose' || qCat === 'throat') return mCat.includes('ear, nose') || mCat.includes('throat');
+    if (qCat === 'antibiotic' || qCat === 'antibiotics' || qCat === 'bacterial') return mCat.includes('bacterial') || mCat.includes('antibiotic');
+    if (qCat === 'antifungal' || qCat === 'fungal') return mCat.includes('antifungal');
+    if (qCat === 'antiviral' || qCat === 'viral') return mCat.includes('antiviral');
+    if (qCat === 'vitamin' || qCat === 'vitamins') return mCat.includes('vitamin');
+    if (qCat === 'supplement' || qCat === 'supplements') return mCat.includes('supplement');
+
+    return mCat.includes(qCat) || qCat.includes(mCat);
+  };
+
+  // Medicine search by Name, Generic Name, Composition, and Strength (Requirement 2)
+  const filterMedicinesComprehensive = (medicines: Medicine[], query: string) => {
     const trimmed = query.trim().toLowerCase();
     if (!trimmed) return medicines;
 
     return medicines.filter(m => {
-      const normGen = m.generic_name.trim().toLowerCase();
-      const normDisp = m.display_name.trim().toLowerCase();
+      const normGen = (m.generic_name || '').trim().toLowerCase();
+      const normDisp = (m.display_name || '').trim().toLowerCase();
       const normAct = (m.active_ingredient || '').trim().toLowerCase();
-      const normCat = m.category.trim().toLowerCase();
+      const normComp = (m.composition || '').trim().toLowerCase();
+      const normCat = (m.category || '').trim().toLowerCase();
+      const normComb = (m.combination_ingredients || '').trim().toLowerCase();
+      const normStrength = (m.strength_form || '').trim().toLowerCase();
 
-      // Exact match only: case-insensitive, no fuzzy matching
-      if (normGen === trimmed || normDisp === trimmed || normAct === trimmed || normCat === trimmed) {
+      // Check name, generic name, active ingredient, composition, strength
+      if (
+        normDisp.includes(trimmed) ||
+        normGen.includes(trimmed) ||
+        normAct.includes(trimmed) ||
+        normComp.includes(trimmed) ||
+        normComb.includes(trimmed) ||
+        normStrength.includes(trimmed) ||
+        matchesCategory(normCat, trimmed)
+      ) {
         return true;
       }
 
+      // Check variants
       if (m.variants && m.variants.length > 0) {
         return m.variants.some(v => {
-          const s1 = `${normGen} ${v.strength.toLowerCase()}`;
-          const s2 = `${normGen} ${v.strength.toLowerCase()} ${v.dosage_form.toLowerCase()}`;
-          return s1 === trimmed || s2 === trimmed;
+          const vStr = `${v.strength} ${v.dosage_form} ${v.composition || ''}`.toLowerCase();
+          return vStr.includes(trimmed);
         });
       }
 
@@ -195,17 +268,21 @@ export const MedicineCatalogPage: React.FC = () => {
     });
   };
 
-  // Active list of medicines based on Category or Global Search
+  // Active list of medicines based on Category or Global Search (Requirement 2)
   let displayedMedicines = allMedicines;
   if (selectedCategory) {
-    displayedMedicines = displayedMedicines.filter(
-      m => m.category.toLowerCase() === selectedCategory.toLowerCase()
-    );
+    displayedMedicines = displayedMedicines.filter(m => matchesCategory(m.category, selectedCategory));
     if (categorySearch.trim()) {
-      displayedMedicines = filterMedicinesExact(displayedMedicines, categorySearch);
+      displayedMedicines = filterMedicinesComprehensive(displayedMedicines, categorySearch);
     }
   } else if (searchQuery.trim()) {
-    displayedMedicines = filterMedicinesExact(displayedMedicines, searchQuery);
+    // If the query matches a known disease category (e.g. "BP", "Sugar", "Heart")
+    const matchingCat = categories.find(c => matchesCategory(c.name, searchQuery.trim()));
+    if (matchingCat) {
+      displayedMedicines = displayedMedicines.filter(m => matchesCategory(m.category, matchingCat.name));
+    } else {
+      displayedMedicines = filterMedicinesComprehensive(displayedMedicines, searchQuery);
+    }
   }
 
   return (
@@ -368,12 +445,22 @@ export const MedicineCatalogPage: React.FC = () => {
 
                       <div className="space-y-1.5 text-xs text-slate-600 mt-3 pt-3 border-t border-slate-100">
                         <div>
-                          <span className="font-bold text-slate-700">Active Ingredient: </span>
-                          <span className="font-medium text-slate-800">{med.active_ingredient || med.generic_name}</span>
+                          <span className="font-bold text-slate-700">Generic Name: </span>
+                          <span className="font-bold text-slate-900">{med.generic_name}</span>
                         </div>
                         <div>
-                          <span className="font-bold text-slate-700">Primary Form: </span>
-                          <span className="font-medium text-slate-800">{med.strength_form} ({med.route || 'Oral'})</span>
+                          <span className="font-bold text-slate-700">Composition: </span>
+                          <span className="font-medium text-slate-800">{med.composition || med.active_ingredient || `${med.generic_name} ${med.strength_form}`}</span>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <div>
+                            <span className="font-bold text-slate-700">Strength: </span>
+                            <span className="font-medium text-emerald-800 font-semibold">{med.strength_form.split(' ')[0] || med.strength_form}</span>
+                          </div>
+                          <div>
+                            <span className="font-bold text-slate-700">Dosage Form: </span>
+                            <span className="font-medium text-slate-800">{med.dosage_form || 'Tablet'} ({med.route || 'Oral'})</span>
+                          </div>
                         </div>
                         {med.combination_ingredients && (
                           <div>
@@ -485,7 +572,15 @@ export const MedicineCatalogPage: React.FC = () => {
                             {med.category}
                           </span>
                           <h3 className="text-base font-black text-slate-900">{med.display_name}</h3>
-                          <p className="text-xs text-slate-600 mt-1">{med.strength_form} • {med.dosage_form}</p>
+                          <p className="text-xs text-slate-700 mt-1 font-semibold">
+                            Generic: <span className="text-slate-900">{med.generic_name}</span>
+                          </p>
+                          <p className="text-xs text-slate-500 mt-0.5">
+                            Composition: <span className="text-slate-700">{med.composition || med.active_ingredient || `${med.generic_name} ${med.strength_form}`}</span>
+                          </p>
+                          <p className="text-xs text-emerald-800 font-semibold mt-1">
+                            {med.strength_form} • {med.dosage_form || 'Tablet'}
+                          </p>
                           <p className="text-[11px] text-slate-500 line-clamp-2 mt-2">{med.description}</p>
                         </div>
                         <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-emerald-700">
@@ -573,15 +668,27 @@ export const MedicineCatalogPage: React.FC = () => {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
                 <div>
-                  <span className="font-bold text-slate-700">Active Ingredient: </span>
-                  <span className="font-semibold text-slate-900">{selectedMedicine.active_ingredient || selectedMedicine.generic_name}</span>
+                  <span className="font-bold text-slate-700">Generic Name: </span>
+                  <span className="font-bold text-slate-900">{selectedMedicine.generic_name}</span>
+                </div>
+                <div>
+                  <span className="font-bold text-slate-700">Therapeutic Category: </span>
+                  <span className="font-semibold text-emerald-800">{selectedMedicine.category}</span>
+                </div>
+                <div className="sm:col-span-2">
+                  <span className="font-bold text-slate-700">Complete Composition: </span>
+                  <span className="font-semibold text-slate-900">{selectedMedicine.composition || selectedMedicine.active_ingredient || `${selectedMedicine.generic_name} ${selectedMedicine.strength_form}`}</span>
+                </div>
+                <div>
+                  <span className="font-bold text-slate-700">Strength & Formulation: </span>
+                  <span className="font-semibold text-slate-900">{selectedMedicine.strength_form}</span>
                 </div>
                 <div>
                   <span className="font-bold text-slate-700">Route of Administration: </span>
                   <span className="font-semibold text-slate-900">{selectedMedicine.route || 'Oral'}</span>
                 </div>
                 <div>
-                  <span className="font-bold text-slate-700">Primary Dosage Form: </span>
+                  <span className="font-bold text-slate-700">Dosage Form: </span>
                   <span className="font-semibold text-slate-900">{selectedMedicine.dosage_form || 'Tablet'}</span>
                 </div>
                 <div>
@@ -670,23 +777,54 @@ export const MedicineCatalogPage: React.FC = () => {
               </div>
             )}
 
-            {/* Feature 6: Real Registered Pharmacy Stock Listings */}
-            <div className="space-y-3 pt-2 border-t border-slate-100">
-              <div className="flex items-center justify-between">
+            {/* Feature 3: Pharmacies Having This Medicine (Live Registered Stock) */}
+            <div className="space-y-4 pt-3 border-t border-slate-100">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <div>
-                  <h3 className="text-sm font-bold text-slate-900">
-                    Registered Pharmacies with Verified Live Stock
+                  <h3 className="text-base font-black text-slate-900">
+                    Pharmacies Having This Medicine
                   </h3>
                   <p className="text-[11px] text-slate-500">
-                    Real pharmacy inventory only. No dummy stock or fictional listings.
+                    Verified registered pharmacies with active stock (&gt; 0 units). Compare prices and availability.
                   </p>
                 </div>
-                <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200">
-                  {pharmacyStock.length} in stock
-                </span>
+
+                {/* Compare / Sort Controls */}
+                {pharmacyStock.length > 1 && (
+                  <div className="flex items-center gap-1.5 self-start sm:self-auto bg-slate-100 p-1 rounded-xl text-xs font-bold text-slate-600">
+                    <span className="text-[10px] text-slate-400 uppercase px-1">Sort:</span>
+                    <button
+                      type="button"
+                      onClick={() => handleStockSortChange('price')}
+                      className={`px-2.5 py-1 rounded-lg transition-colors ${
+                        stockSortBy === 'price' ? 'bg-white text-emerald-700 shadow-xs' : 'hover:text-slate-900'
+                      }`}
+                    >
+                      Lowest Price
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleStockSortChange('stock')}
+                      className={`px-2.5 py-1 rounded-lg transition-colors ${
+                        stockSortBy === 'stock' ? 'bg-white text-emerald-700 shadow-xs' : 'hover:text-slate-900'
+                      }`}
+                    >
+                      Highest Stock
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleStockSortChange('distance')}
+                      className={`px-2.5 py-1 rounded-lg transition-colors ${
+                        stockSortBy === 'distance' ? 'bg-white text-emerald-700 shadow-xs' : 'hover:text-slate-900'
+                      }`}
+                    >
+                      Nearest
+                    </button>
+                  </div>
+                )}
               </div>
 
-              {/* 48-Hour Reservation Expiry Notice (Feature 7) */}
+              {/* 48-Hour Reservation Expiry Notice */}
               <div className="p-3 bg-blue-50/80 border border-blue-200 rounded-xl flex items-center gap-2.5 text-xs text-blue-900">
                 <Clock className="w-4 h-4 text-blue-600 flex-shrink-0" />
                 <div>
@@ -696,47 +834,85 @@ export const MedicineCatalogPage: React.FC = () => {
               </div>
 
               {isLoadingStock ? (
-                <div className="py-8 text-center text-xs text-slate-500 flex items-center justify-center gap-2">
+                <div className="py-10 text-center text-xs text-slate-500 flex items-center justify-center gap-2">
                   <Loader2 className="w-4 h-4 text-emerald-600 animate-spin" />
-                  Checking registered pharmacies...
+                  Checking registered pharmacies in database...
                 </div>
               ) : pharmacyStock.length === 0 ? (
-                <div className="p-6 bg-slate-50 rounded-2xl border border-dashed border-slate-300 text-center space-y-2">
-                  <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-slate-500 mx-auto">
-                    <Pill className="w-4 h-4" />
+                <div className="p-8 bg-amber-50/80 rounded-2xl border border-amber-200 text-center space-y-2">
+                  <div className="w-12 h-12 rounded-full bg-amber-100 flex items-center justify-center text-amber-700 mx-auto">
+                    <AlertCircle className="w-6 h-6" />
                   </div>
-                  <p className="text-xs font-bold text-slate-700">Currently Out of Stock at Registered Pharmacies</p>
-                  <p className="text-[11px] text-slate-500 max-w-sm mx-auto">
-                    This medicine is registered in the master generic catalog, but none of the approved local pharmacies currently have reported active stock for it.
+                  <h4 className="text-base font-black text-slate-800">
+                    No pharmacies currently have this medicine in stock.
+                  </h4>
+                  <p className="text-xs text-slate-600 max-w-md mx-auto">
+                    This medicine is registered in the MediStock master catalog, but currently no registered pharmacy has active stock (&gt; 0 units). Registered pharmacies can add this medicine to their stock from their Pharmacy Dashboard.
                   </p>
                 </div>
               ) : (
-                <div className="space-y-2.5">
+                <div className="space-y-3">
                   {pharmacyStock.map((item) => (
                     <div
                       key={item.inventory_id}
-                      className="p-3.5 bg-white rounded-xl border border-slate-200 hover:border-emerald-300 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-colors"
+                      className="p-4 bg-white rounded-2xl border border-slate-200 hover:border-emerald-400 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4 transition-all"
                     >
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <h4 className="text-sm font-bold text-slate-900">{item.pharmacy_name}</h4>
+                      <div className="space-y-1.5 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h4 className="text-sm font-extrabold text-slate-900">{item.pharmacy_name}</h4>
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                            Verified Store
+                          </span>
                           {item.distance_km !== null && item.distance_km !== undefined && (
                             <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
                               ~ {item.distance_km} km (by road)
                             </span>
                           )}
                         </div>
-                        <p className="text-xs text-slate-500 flex items-center gap-1 mt-0.5">
-                          <MapPin className="w-3.5 h-3.5 text-slate-400" />
-                          {item.pharmacy_address}, {item.city} - {item.pin_code}
+
+                        <p className="text-xs text-slate-600 flex items-center gap-1.5">
+                          <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                          <span>{item.pharmacy_address}, {item.city} - {item.pin_code}</span>
                         </p>
-                        <div className="flex items-center gap-3 text-xs text-slate-600 mt-2 font-medium">
-                          <span>Listed Price: <strong className="text-slate-900">₹{item.price}</strong></span>
-                          <span>Available: <strong className="text-emerald-700">{item.quantity} units</strong></span>
+
+                        {item.mobile_number && (
+                          <p className="text-xs text-slate-600 flex items-center gap-1.5">
+                            <Phone className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                            <a href={`tel:${item.mobile_number}`} className="text-emerald-700 font-semibold hover:underline">
+                              +91 {item.mobile_number}
+                            </a>
+                          </p>
+                        )}
+
+                        <div className="pt-2 border-t border-slate-100 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-600">
+                          <div>
+                            <span className="font-semibold text-slate-500">Medicine: </span>
+                            <span className="font-bold text-slate-800">{selectedMedicine.display_name}</span>
+                          </div>
+                          <div>
+                            <span className="font-semibold text-slate-500">Composition: </span>
+                            <span className="font-medium text-slate-700">
+                              {selectedVariant ? selectedVariant.composition : (selectedMedicine.composition || selectedMedicine.generic_name)}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="font-semibold text-slate-500">Strength: </span>
+                            <span className="font-medium text-slate-700">
+                              {selectedVariant ? `${selectedVariant.strength} ${selectedVariant.dosage_form}` : selectedMedicine.strength_form}
+                            </span>
+                          </div>
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-2 self-end sm:self-center">
+                      <div className="flex md:flex-col items-center md:items-end justify-between md:justify-center gap-3 pt-3 md:pt-0 border-t md:border-t-0 border-slate-100 shrink-0">
+                        <div className="text-left md:text-right">
+                          <div className="text-lg font-black text-slate-900">₹{item.price}</div>
+                          <div className="text-[11px] font-bold text-emerald-700 flex items-center gap-1 md:justify-end">
+                            <CheckCircle2 className="w-3 h-3" />
+                            {item.quantity} units in stock
+                          </div>
+                        </div>
+
                         <button
                           type="button"
                           disabled={isReserving}

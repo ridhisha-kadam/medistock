@@ -921,6 +921,7 @@ export const api = {
     composition?: string;
     dosageForm?: string;
     route?: string;
+    manufacturer?: string;
     combinationIngredients?: string;
     referenceSource?: string;
     isPrescriptionRequired?: boolean;
@@ -1177,6 +1178,7 @@ export const api = {
     quantity: number;
     price: number;
     expiryDate: string;
+    batchNumber?: string;
     updatedBy?: string;
   }): Promise<InventoryItem> {
     if (!data.pharmacyId) throw new Error('Pharmacy ID is required.');
@@ -1198,6 +1200,7 @@ export const api = {
       quantity: data.quantity,
       price: data.price,
       expiry_date: data.expiryDate,
+      batch_number: data.batchNumber?.trim() || null,
       status,
       last_updated: now,
       updated_by: data.updatedBy || null,
@@ -1219,6 +1222,7 @@ export const api = {
             quantity: data.quantity,
             price: data.price,
             expiry_date: data.expiryDate,
+            batch_number: data.batchNumber?.trim() || null,
             status,
             last_updated: now,
           }).eq('id', existing.id);
@@ -1242,6 +1246,7 @@ export const api = {
         quantity: data.quantity,
         price: data.price,
         expiry_date: data.expiryDate,
+        batch_number: data.batchNumber?.trim() || localDB.inventory[existingIdx].batch_number || null,
         status,
         last_updated: now,
       };
@@ -1341,6 +1346,7 @@ export const api = {
    */
   async searchMedicine(params: {
     query?: string;
+    medicineId?: string;
     category?: string;
     location?: string;
     userLat?: number;
@@ -1366,6 +1372,11 @@ export const api = {
       if (!medicine) continue;
 
       if (params.inStockOnly && inv.quantity <= 0) continue;
+
+      // Filter by exact medicineId if requested
+      if (params.medicineId && inv.medicine_id !== params.medicineId && medicine.id !== params.medicineId) {
+        continue;
+      }
 
       // Filter by category if specified
       if (params.category?.trim()) {
@@ -1480,6 +1491,8 @@ export const api = {
         brand_name: medicine.brand_name,
         category: medicine.category,
         strength_form: medicine.strength_form,
+        composition: medicine.composition || medicine.active_ingredient || `${medicine.generic_name} ${medicine.strength_form}`,
+        batch_number: inv.batch_number || null,
         pharmacy_id: pharmacy.id,
         pharmacy_name: pharmacy.name,
         pharmacy_address: pharmacy.address,
@@ -1526,16 +1539,14 @@ export const api = {
    * API 21: /api/medicine/{id}/availability (GET)
    */
   async checkMedicineAvailability(medicineId: string, location?: string): Promise<SearchResultItem[]> {
-    return this.searchMedicine({ location, inStockOnly: false });
+    return this.searchMedicine({ medicineId, location, inStockOnly: true });
   },
 
   /**
    * API 22: /api/compare/medicine (GET)
    */
   async compareMedicine(medicineId: string): Promise<SearchResultItem[]> {
-    const med = await this.getMedicineById(medicineId);
-    if (!med) return [];
-    return this.searchMedicine({ query: med.display_name });
+    return this.searchMedicine({ medicineId, inStockOnly: true, sortBy: 'price' });
   },
 
   // ----------------------------------------------------------------------------

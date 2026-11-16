@@ -6,11 +6,14 @@ import {
   Pharmacy, 
   InventoryItem, 
   Medicine, 
+  MedicineVariant,
+  TherapeuticCategory,
   Reservation, 
   Bill, 
   Alert, 
   ReservationStatus 
 } from '../types/database';
+import { THERAPEUTIC_CATEGORIES } from '../data/medicineCatalogData';
 import { StatusBadge } from '../components/StatusBadge';
 import { InvoiceModal } from '../components/InvoiceModal';
 import { Modal } from '../components/Modal';
@@ -32,7 +35,14 @@ import {
   MapPin,
   Mail,
   Phone,
-  FileBadge
+  FileBadge,
+  Search,
+  CheckCircle2,
+  Pill,
+  Sparkles,
+  Layers,
+  ChevronRight,
+  ShieldCheck
 } from 'lucide-react';
 
 export const PharmacyDashboardPage: React.FC = () => {
@@ -50,6 +60,13 @@ export const PharmacyDashboardPage: React.FC = () => {
   const [isEditPharmModalOpen, setIsEditPharmModalOpen] = useState<boolean>(false);
   const [profileSuccessMsg, setProfileSuccessMsg] = useState<string | null>(null);
 
+  // Dynamic Categories & Selection (Requirement 1.A & 1.B)
+  const [categories, setCategories] = useState<TherapeuticCategory[]>([]);
+  const [selectedCategory, setSelectedCategory] = useState<string>('');
+  const [categorySearchQuery, setCategorySearchQuery] = useState<string>('');
+  const [selectedVariantId, setSelectedVariantId] = useState<string>('');
+  const [batchNumber, setBatchNumber] = useState<string>('');
+
   // Add/Edit Stock Form state
   const [isEditingListing, setIsEditingListing] = useState<string | null>(null);
   const [selectedMedId, setSelectedMedId] = useState<string>('');
@@ -60,12 +77,22 @@ export const PharmacyDashboardPage: React.FC = () => {
   const [formSuccess, setFormSuccess] = useState<string | null>(null);
   const [isSavingStock, setIsSavingStock] = useState<boolean>(false);
 
-  // New Medicine in Catalogue Form
-  const [isAddingNewCatalogueMed, setIsAddingNewCatalogueMed] = useState<boolean>(false);
+  // Add New Medicine Modal State (Requirement 1.C)
+  const [isAddingNewMedicineModal, setIsAddingNewMedicineModal] = useState<boolean>(false);
   const [newMedDisplayName, setNewMedDisplayName] = useState('');
-  const [newMedGenericName, setNewMedGenericName] = useState('');
   const [newMedCategory, setNewMedCategory] = useState('');
-  const [newMedStrengthForm, setNewMedStrengthForm] = useState('');
+  const [newMedGenericName, setNewMedGenericName] = useState('');
+  const [newMedComposition, setNewMedComposition] = useState('');
+  const [newMedStrength, setNewMedStrength] = useState('');
+  const [newMedDosageForm, setNewMedDosageForm] = useState('Tablet');
+  const [newMedManufacturer, setNewMedManufacturer] = useState('');
+  const [newMedQuantity, setNewMedQuantity] = useState('');
+  const [newMedPrice, setNewMedPrice] = useState('');
+  const [newMedBatchNumber, setNewMedBatchNumber] = useState('');
+  const [newMedExpiryDate, setNewMedExpiryDate] = useState('');
+  const [duplicateMedicineFound, setDuplicateMedicineFound] = useState<Medicine | null>(null);
+  const [newMedError, setNewMedError] = useState<string | null>(null);
+  const [isSavingNewMed, setIsSavingNewMed] = useState<boolean>(false);
 
   // Invoice Modal
   const [selectedBillForPrint, setSelectedBillForPrint] = useState<Bill | null>(null);
@@ -85,14 +112,18 @@ export const PharmacyDashboardPage: React.FC = () => {
       const myPharm = pharms.find(p => p.owner_user_id === user!.id) || null;
       setCurrentPharm(myPharm);
 
+      // Load dynamic therapeutic categories from database/catalog
+      const cats = await api.getTherapeuticCategories();
+      setCategories(cats && cats.length > 0 ? cats : THERAPEUTIC_CATEGORIES);
+
+      // Load catalogue
+      const catalogue = await api.getMedicines();
+      setMedicinesCatalogue(catalogue);
+
       if (myPharm) {
-        // Load inventory
+        // Load inventory for currently logged-in pharmacy only
         const inv = await api.getInventory({ pharmacyId: myPharm.id });
         setInventory(inv);
-
-        // Load catalogue
-        const catalogue = await api.getMedicines();
-        setMedicinesCatalogue(catalogue);
 
         // Load reservations
         const pharmRes = await api.getPharmacyReservations(myPharm.id);
@@ -113,6 +144,60 @@ export const PharmacyDashboardPage: React.FC = () => {
     }
   };
 
+  // Matches category taking into account full names and therapeutic aliases
+  const matchesCategory = (medCategory: string, catQuery: string): boolean => {
+    if (!medCategory || !catQuery) return false;
+    const mCat = medCategory.trim().toLowerCase();
+    const qCat = catQuery.trim().toLowerCase();
+    if (mCat === qCat) return true;
+
+    if (qCat === 'bp' || qCat === 'blood pressure' || qCat === 'hypertension') {
+      return mCat.includes('blood pressure') || mCat.includes('hypertension') || mCat.includes('bp');
+    }
+    if (qCat === 'sugar' || qCat === 'diabetes' || qCat === 'blood sugar') {
+      return mCat.includes('diabetes') || mCat.includes('blood sugar');
+    }
+    if (qCat === 'heart' || qCat === 'cardiac' || qCat === 'heart attack') {
+      return mCat.includes('heart');
+    }
+    if (qCat === 'fever' || qCat === 'temperature') return mCat.includes('fever');
+    if (qCat === 'pain' || qCat === 'pain relief' || qCat === 'body pain' || qCat === 'headache') return mCat.includes('pain');
+    if (qCat === 'cold' || qCat === 'cough' || qCat === 'cold and cough') return mCat.includes('cold') || mCat.includes('cough');
+    if (qCat === 'asthma' || qCat === 'copd' || qCat === 'breathing') return mCat.includes('asthma') || mCat.includes('copd');
+    if (qCat === 'thyroid') return mCat.includes('thyroid');
+    if (qCat === 'acidity' || qCat === 'gastric' || qCat === 'gas') return mCat.includes('gastric') || mCat.includes('acidity');
+    if (qCat === 'kidney') return mCat.includes('kidney');
+    if (qCat === 'liver') return mCat.includes('liver');
+    if (qCat === 'skin') return mCat.includes('skin');
+    if (qCat === 'eye') return mCat.includes('eye');
+    if (qCat === 'antibiotic' || qCat === 'antibiotics' || qCat === 'bacterial') return mCat.includes('bacterial') || mCat.includes('antibiotic');
+    if (qCat === 'antifungal' || qCat === 'fungal') return mCat.includes('antifungal');
+    if (qCat === 'antiviral' || qCat === 'viral') return mCat.includes('antiviral');
+    if (qCat === 'vitamin' || qCat === 'vitamins') return mCat.includes('vitamin');
+
+    return mCat.includes(qCat) || qCat.includes(mCat);
+  };
+
+  // Filter medicines by selected category & search query (Requirement 1.B)
+  const categoryMedicines = selectedCategory
+    ? medicinesCatalogue.filter(m => matchesCategory(m.category, selectedCategory))
+    : [];
+
+  const suggestedMedicines = categoryMedicines.filter(m => {
+    if (!categorySearchQuery.trim()) return true;
+    const q = categorySearchQuery.trim().toLowerCase();
+    return (
+      m.display_name.toLowerCase().includes(q) ||
+      m.generic_name.toLowerCase().includes(q) ||
+      (m.composition && m.composition.toLowerCase().includes(q)) ||
+      (m.active_ingredient && m.active_ingredient.toLowerCase().includes(q)) ||
+      m.strength_form.toLowerCase().includes(q)
+    );
+  });
+
+  const activeMedicine = medicinesCatalogue.find(m => m.id === selectedMedId) || null;
+  const activeVariant = activeMedicine?.variants?.find(v => v.id === selectedVariantId) || activeMedicine?.variants?.[0] || null;
+
   const handleSaveStock = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentPharm) return;
@@ -122,7 +207,7 @@ export const PharmacyDashboardPage: React.FC = () => {
 
     // Validation
     if (!selectedMedId) {
-      setFormError('Please select a medicine from the catalogue.');
+      setFormError('Please select a medicine from the category suggestions.');
       return;
     }
     const qty = parseInt(stockQuantity);
@@ -147,6 +232,7 @@ export const PharmacyDashboardPage: React.FC = () => {
           quantity: qty,
           price: price,
           expiry_date: expiryDate,
+          batch_number: batchNumber.trim() || undefined,
         });
         setFormSuccess('Medicine inventory updated successfully!');
       } else {
@@ -156,15 +242,20 @@ export const PharmacyDashboardPage: React.FC = () => {
           quantity: qty,
           price: price,
           expiryDate: expiryDate,
+          batchNumber: batchNumber.trim() || undefined,
           updatedBy: user?.id,
         });
-        setFormSuccess('Medicine added to stock successfully!');
+        const medName = activeMedicine?.display_name || 'Medicine';
+        setFormSuccess(`Successfully added ${medName} to your pharmacy stock!`);
       }
 
       // Reset form
       setSelectedMedId('');
+      setSelectedVariantId('');
+      setCategorySearchQuery('');
       setStockQuantity('');
       setStockPrice('');
+      setBatchNumber('');
       setExpiryDate('');
       setIsEditingListing(null);
 
@@ -181,8 +272,12 @@ export const PharmacyDashboardPage: React.FC = () => {
   const handleEditClick = (item: InventoryItem) => {
     setIsEditingListing(item.id);
     setSelectedMedId(item.medicine_id);
+    if (item.medicine?.category) {
+      setSelectedCategory(item.medicine.category);
+    }
     setStockQuantity(item.quantity.toString());
     setStockPrice(item.price.toString());
+    setBatchNumber(item.batch_number || '');
     setExpiryDate(item.expiry_date);
     setFormError(null);
     setFormSuccess(null);
@@ -202,34 +297,128 @@ export const PharmacyDashboardPage: React.FC = () => {
     }
   };
 
-  const handleCreateCatalogueMedicine = async (e: React.FormEvent) => {
+  // Add New Medicine to Catalog & Stock (Requirement 1.C)
+  const handleCreateNewMedicineAndStock = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newMedDisplayName.trim() || !newMedGenericName.trim() || !newMedCategory.trim() || !newMedStrengthForm.trim()) {
-      alert('All medicine catalogue fields are mandatory.');
+    if (!currentPharm) return;
+
+    setNewMedError(null);
+    setDuplicateMedicineFound(null);
+
+    if (!newMedDisplayName.trim()) {
+      setNewMedError('Medicine Display Name is required.');
+      return;
+    }
+    if (!newMedCategory.trim()) {
+      setNewMedError('Please select a medicine category.');
+      return;
+    }
+    if (!newMedGenericName.trim()) {
+      setNewMedError('Generic Name is required.');
+      return;
+    }
+    if (!newMedStrength.trim()) {
+      setNewMedError('Strength is required (e.g. 5 mg, 500 mg).');
+      return;
+    }
+    const qty = parseInt(newMedQuantity);
+    if (isNaN(qty) || qty < 0) {
+      setNewMedError('Quantity must be a valid whole number (0 or greater).');
+      return;
+    }
+    const price = parseFloat(newMedPrice);
+    if (isNaN(price) || price < 0) {
+      setNewMedError('Selling Price must be a valid non-negative number.');
+      return;
+    }
+    if (!newMedExpiryDate) {
+      setNewMedError('Expiry Date is mandatory.');
       return;
     }
 
+    const strengthForm = `${newMedStrength.trim()} ${newMedDosageForm.trim()}`;
+    const compText = newMedComposition.trim() || `${newMedGenericName.trim()} ${newMedStrength.trim()}`;
+
+    // Duplicate Check: Check whether the medicine already exists in the catalog before creating
+    const existing = medicinesCatalogue.find(m => 
+      m.generic_name.trim().toLowerCase() === newMedGenericName.trim().toLowerCase() &&
+      (m.strength_form.trim().toLowerCase() === strengthForm.toLowerCase() ||
+       m.variants?.some(v => v.strength.trim().toLowerCase() === newMedStrength.trim().toLowerCase()))
+    );
+
+    if (existing) {
+      setDuplicateMedicineFound(existing);
+      setNewMedError(`This medicine already exists in the MediStock catalog as "${existing.display_name}". You can select it directly instead of creating a duplicate entry.`);
+      return;
+    }
+
+    setIsSavingNewMed(true);
     try {
-      const created = await api.createMedicine({
+      // 1. Create persistent catalog entry in database
+      const createdMed = await api.createMedicine({
         displayName: newMedDisplayName.trim(),
         genericName: newMedGenericName.trim(),
         category: newMedCategory.trim(),
-        strengthForm: newMedStrengthForm.trim(),
+        strengthForm: strengthForm,
+        dosageForm: newMedDosageForm.trim(),
+        composition: compText,
+        activeIngredient: newMedGenericName.trim(),
+        manufacturer: newMedManufacturer.trim() || undefined,
+        referenceSource: 'Registered Pharmacy Submission',
         createdBy: user?.id,
       });
 
-      const updatedCat = await api.getMedicines();
-      setMedicinesCatalogue(updatedCat);
-      setSelectedMedId(created.id);
-      setIsAddingNewCatalogueMed(false);
+      // 2. Add stock associated with currently logged-in pharmacy only
+      await api.addInventoryItem({
+        pharmacyId: currentPharm.id,
+        medicineId: createdMed.id,
+        quantity: qty,
+        price: price,
+        expiryDate: newMedExpiryDate,
+        batchNumber: newMedBatchNumber.trim() || undefined,
+        updatedBy: user?.id,
+      });
 
+      // 3. Refresh catalogue and pharmacy inventory
+      const [updatedCat, updatedInv] = await Promise.all([
+        api.getMedicines(),
+        api.getInventory({ pharmacyId: currentPharm.id })
+      ]);
+      setMedicinesCatalogue(updatedCat);
+      setInventory(updatedInv);
+
+      // Close modal and reset fields
+      setIsAddingNewMedicineModal(false);
       setNewMedDisplayName('');
       setNewMedGenericName('');
-      setNewMedCategory('');
-      setNewMedStrengthForm('');
-    } catch (e: any) {
-      alert(e.message || 'Could not add medicine to catalogue.');
+      setNewMedComposition('');
+      setNewMedStrength('');
+      setNewMedDosageForm('Tablet');
+      setNewMedManufacturer('');
+      setNewMedQuantity('');
+      setNewMedPrice('');
+      setNewMedBatchNumber('');
+      setNewMedExpiryDate('');
+      setDuplicateMedicineFound(null);
+
+      setFormSuccess(`New medicine "${createdMed.display_name}" created in catalog and added to your pharmacy stock!`);
+    } catch (err: any) {
+      setNewMedError(err.message || 'Failed to save new medicine.');
+    } finally {
+      setIsSavingNewMed(false);
     }
+  };
+
+  const handleSelectExistingDuplicate = (med: Medicine) => {
+    setSelectedCategory(med.category);
+    setSelectedMedId(med.id);
+    if (newMedQuantity) setStockQuantity(newMedQuantity);
+    if (newMedPrice) setStockPrice(newMedPrice);
+    if (newMedBatchNumber) setBatchNumber(newMedBatchNumber);
+    if (newMedExpiryDate) setExpiryDate(newMedExpiryDate);
+    setIsAddingNewMedicineModal(false);
+    setDuplicateMedicineFound(null);
+    setNewMedError(null);
   };
 
   const handleUpdateReservation = async (reservationId: string, newStatus: ReservationStatus) => {
@@ -393,6 +582,7 @@ export const PharmacyDashboardPage: React.FC = () => {
                     <tr>
                       <th className="px-6 py-3.5">Medicine Name</th>
                       <th className="px-6 py-3.5">Generic / Composition</th>
+                      <th className="px-6 py-3.5">Batch No.</th>
                       <th className="px-6 py-3.5">Quantity</th>
                       <th className="px-6 py-3.5">Price (₹)</th>
                       <th className="px-6 py-3.5">Expiry Date</th>
@@ -407,7 +597,13 @@ export const PharmacyDashboardPage: React.FC = () => {
                           {item.medicine?.display_name || 'Medicine'}
                         </td>
                         <td className="px-6 py-4 text-xs text-slate-500">
-                          {item.medicine?.generic_name} ({item.medicine?.strength_form})
+                          <div>{item.medicine?.generic_name} ({item.medicine?.strength_form})</div>
+                          {item.medicine?.composition && (
+                            <div className="text-[11px] text-slate-400 mt-0.5">{item.medicine.composition}</div>
+                          )}
+                        </td>
+                        <td className="px-6 py-4 text-xs font-mono text-slate-600">
+                          {item.batch_number || '—'}
                         </td>
                         <td className="px-6 py-4 font-semibold text-slate-800">
                           {item.quantity} units
@@ -445,85 +641,191 @@ export const PharmacyDashboardPage: React.FC = () => {
             )}
           </div>
 
-          {/* Add or Update Stock Form (Exact Fig 9.6) */}
+          {/* Add or Update Stock Form (Requirement 1: Category-Driven Medicine Stocking) */}
           <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 sm:p-8">
-            <div className="flex items-center justify-between mb-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-100 mb-6 gap-2">
               <div>
                 <h3 className="text-lg font-bold text-slate-900">
-                  {isEditingListing ? 'Edit Stock Listing' : 'Add or update stock'}
+                  {isEditingListing ? 'Edit Stock Listing' : 'Add Medicine to Pharmacy Stock'}
                 </h3>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Enter actual medicine inventory values. All fields are mandatory.
+                  Select disease category to view medicine suggestions, or add a new medicine to your stock.
                 </p>
               </div>
 
-              {isEditingListing && (
+              <div className="flex items-center gap-2">
                 <button
                   type="button"
                   onClick={() => {
-                    setIsEditingListing(null);
-                    setSelectedMedId('');
-                    setStockQuantity('');
-                    setStockPrice('');
-                    setExpiryDate('');
+                    setNewMedCategory(selectedCategory || categories[0]?.name || 'Blood Pressure (BP) and Hypertension');
+                    setIsAddingNewMedicineModal(true);
                   }}
-                  className="text-xs text-slate-500 hover:text-slate-800 underline"
+                  className="flex items-center gap-1.5 px-4 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 rounded-xl text-xs font-bold transition-all shadow-2xs"
                 >
-                  Cancel Edit
+                  <PlusCircle className="w-4 h-4 text-emerald-600" />
+                  + Add New Medicine (if not in catalog)
                 </button>
-              )}
+
+                {isEditingListing && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsEditingListing(null);
+                      setSelectedMedId('');
+                      setSelectedVariantId('');
+                      setStockQuantity('');
+                      setStockPrice('');
+                      setBatchNumber('');
+                      setExpiryDate('');
+                    }}
+                    className="text-xs text-slate-500 hover:text-slate-800 underline px-2 py-1"
+                  >
+                    Cancel Edit
+                  </button>
+                )}
+              </div>
             </div>
 
             {formError && (
-              <div className="mb-4 p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700">
+              <div className="mb-4 p-3.5 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 font-medium">
                 {formError}
               </div>
             )}
 
             {formSuccess && (
-              <div className="mb-4 p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-800 font-semibold flex items-center gap-2">
-                <Check className="w-4 h-4 text-emerald-600" />
+              <div className="mb-4 p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-800 font-semibold flex items-center gap-2">
+                <Check className="w-4 h-4 text-emerald-600 shrink-0" />
                 {formSuccess}
               </div>
             )}
 
-            <form onSubmit={handleSaveStock} className="space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-12 gap-4">
-                {/* Medicine Selection */}
-                <div className="sm:col-span-6">
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="block text-xs font-bold text-slate-700">
-                      Medicine *
+            <form onSubmit={handleSaveStock} className="space-y-6">
+              {/* Step A: Category Selection */}
+              <div className="bg-slate-50/70 p-4 rounded-xl border border-slate-200 space-y-2">
+                <label className="block text-xs font-bold text-slate-800">
+                  Step 1: Select Disease / Medicine Category *
+                </label>
+                <select
+                  value={selectedCategory}
+                  onChange={(e) => {
+                    setSelectedCategory(e.target.value);
+                    setSelectedMedId('');
+                    setSelectedVariantId('');
+                    setCategorySearchQuery('');
+                  }}
+                  className="w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-xl text-xs sm:text-sm font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-600"
+                >
+                  <option value="">-- Choose Disease Category (e.g. Blood Pressure, Diabetes, Heart, Fever) --</option>
+                  {categories.map((cat) => (
+                    <option key={cat.id || cat.name} value={cat.name}>
+                      {cat.name}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[11px] text-slate-500">
+                  Categorized per Indian NLEM standards. Selecting a category dynamically filters its catalog medicines.
+                </p>
+              </div>
+
+              {/* Step B: Category-Based Medicine Selection */}
+              {selectedCategory ? (
+                <div className="bg-emerald-50/40 p-5 rounded-2xl border border-emerald-200 space-y-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <label className="block text-xs font-bold text-slate-900">
+                      Step 2: Choose Medicine in <span className="text-emerald-800 font-black">"{selectedCategory}"</span> *
                     </label>
-                    <button
-                      type="button"
-                      onClick={() => setIsAddingNewCatalogueMed(true)}
-                      className="text-[11px] text-emerald-700 hover:underline font-semibold flex items-center gap-1"
-                    >
-                      <PlusCircle className="w-3 h-3" />
-                      Add new medicine to catalogue
-                    </button>
+                    <span className="text-[11px] font-bold text-emerald-700 bg-white px-2.5 py-0.5 rounded-full border border-emerald-200">
+                      {categoryMedicines.length} verified medicines in this category
+                    </span>
                   </div>
 
-                  <select
-                    required
-                    value={selectedMedId}
-                    onChange={(e) => setSelectedMedId(e.target.value)}
-                    className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs sm:text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-600"
-                  >
-                    <option value="">Select a medicine from catalogue...</option>
-                    {medicinesCatalogue.map((m) => (
-                      <option key={m.id} value={m.id}>
-                        {m.display_name} ({m.generic_name} • {m.strength_form})
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                  {/* Search inside category */}
+                  <div className="relative">
+                    <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
+                    <input
+                      type="text"
+                      value={categorySearchQuery}
+                      onChange={(e) => setCategorySearchQuery(e.target.value)}
+                      placeholder={`Filter medicines in ${selectedCategory} (e.g. Amlodipine, Telmisartan)...`}
+                      className="w-full pl-10 pr-4 py-2 bg-white border border-slate-300 rounded-xl text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-600 font-medium"
+                    />
+                  </div>
 
+                  {/* Suggestions dropdown / select */}
+                  <div>
+                    <select
+                      required
+                      value={selectedMedId}
+                      onChange={(e) => {
+                        setSelectedMedId(e.target.value);
+                        const chosen = medicinesCatalogue.find(m => m.id === e.target.value);
+                        if (chosen?.variants && chosen.variants.length > 0) {
+                          setSelectedVariantId(chosen.variants[0].id);
+                        } else {
+                          setSelectedVariantId('');
+                        }
+                      }}
+                      className="w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-xl text-xs sm:text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-600 shadow-2xs"
+                    >
+                      <option value="">-- Click to select a medicine from suggestions ({suggestedMedicines.length} available) --</option>
+                      {suggestedMedicines.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.display_name} • {m.generic_name} ({m.strength_form})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* If selected medicine has verified variants */}
+                  {activeMedicine?.variants && activeMedicine.variants.length > 1 && (
+                    <div className="p-3 bg-white rounded-xl border border-emerald-200 space-y-1.5">
+                      <label className="block text-xs font-bold text-slate-700">
+                        Select Specific Strength / Formulation Variant:
+                      </label>
+                      <select
+                        value={selectedVariantId || activeMedicine.variants[0].id}
+                        onChange={(e) => setSelectedVariantId(e.target.value)}
+                        className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-600"
+                      >
+                        {activeMedicine.variants.map((v) => (
+                          <option key={v.id} value={v.id}>
+                            {v.strength} {v.dosage_form} — {v.composition}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
+                  {/* Selected Medicine Preview Badge */}
+                  {activeMedicine && (
+                    <div className="p-3.5 bg-white rounded-xl border border-emerald-300 flex flex-col sm:flex-row sm:items-center justify-between gap-2 shadow-2xs">
+                      <div className="space-y-0.5 text-xs">
+                        <div className="font-extrabold text-slate-900 text-sm">{activeMedicine.display_name}</div>
+                        <div className="text-slate-600">
+                          <strong>Generic Name:</strong> {activeMedicine.generic_name} | <strong>Form:</strong> {activeVariant ? `${activeVariant.strength} ${activeVariant.dosage_form}` : activeMedicine.strength_form}
+                        </div>
+                        <div className="text-emerald-800 text-[11px] font-medium">
+                          <strong>Composition:</strong> {activeVariant ? activeVariant.composition : (activeMedicine.composition || activeMedicine.generic_name)}
+                        </div>
+                      </div>
+                      <span className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200 self-start sm:self-auto">
+                        Ready to Stock
+                      </span>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="p-4 bg-slate-50 rounded-xl border border-dashed border-slate-300 text-center text-xs text-slate-500">
+                  Please select a disease category above to view available medicines and strengths.
+                </div>
+              )}
+
+              {/* Step C: Stock Values (Quantity, Price, Batch, Expiry) */}
+              <div className="grid grid-cols-1 sm:grid-cols-12 gap-4 pt-2">
                 {/* Quantity */}
-                <div className="sm:col-span-2">
+                <div className="sm:col-span-3">
                   <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Quantity *
+                    Stock Quantity (units) *
                   </label>
                   <input
                     type="number"
@@ -531,18 +833,18 @@ export const PharmacyDashboardPage: React.FC = () => {
                     required
                     value={stockQuantity}
                     onChange={(e) => setStockQuantity(e.target.value)}
-                    placeholder="0"
-                    className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-600"
+                    placeholder="e.g. 50"
+                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-600"
                   />
                   <span className="text-[10px] text-slate-400 mt-1 block">
-                    Whole number, 0 marks it out of stock.
+                    Whole units in pharmacy. 0 marks out of stock.
                   </span>
                 </div>
 
                 {/* Price */}
-                <div className="sm:col-span-2">
+                <div className="sm:col-span-3">
                   <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Price per unit, ₹ *
+                    Selling Price per unit, ₹ *
                   </label>
                   <input
                     type="number"
@@ -551,13 +853,30 @@ export const PharmacyDashboardPage: React.FC = () => {
                     required
                     value={stockPrice}
                     onChange={(e) => setStockPrice(e.target.value)}
-                    placeholder="25.00"
-                    className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-600"
+                    placeholder="e.g. 28.50"
+                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-600"
                   />
                 </div>
 
+                {/* Batch Number */}
+                <div className="sm:col-span-3">
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Batch Number
+                  </label>
+                  <input
+                    type="text"
+                    value={batchNumber}
+                    onChange={(e) => setBatchNumber(e.target.value)}
+                    placeholder="e.g. BATCH-2026-X1"
+                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-emerald-600"
+                  />
+                  <span className="text-[10px] text-slate-400 mt-1 block">
+                    Manufacturer lot / batch code.
+                  </span>
+                </div>
+
                 {/* Expiry Date */}
-                <div className="sm:col-span-2">
+                <div className="sm:col-span-3">
                   <label className="block text-xs font-bold text-slate-700 mb-1">
                     Expiry Date *
                   </label>
@@ -566,12 +885,12 @@ export const PharmacyDashboardPage: React.FC = () => {
                     required
                     value={expiryDate}
                     onChange={(e) => setExpiryDate(e.target.value)}
-                    className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-600"
+                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-600"
                   />
                 </div>
               </div>
 
-              <div className="pt-2">
+              <div className="pt-2 flex items-center gap-3">
                 <button
                   type="submit"
                   disabled={isSavingStock}
@@ -580,10 +899,10 @@ export const PharmacyDashboardPage: React.FC = () => {
                   {isSavingStock ? (
                     <>
                       <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      Saving changes...
+                      Saving to stock...
                     </>
                   ) : (
-                    'Save changes'
+                    'Save to Pharmacy Stock'
                   )}
                 </button>
               </div>
@@ -891,71 +1210,213 @@ export const PharmacyDashboardPage: React.FC = () => {
         </div>
       )}
 
-      {/* Modal to Add New Medicine to Shared Catalogue */}
+      {/* Modal to Add New Medicine to Catalog & Pharmacy Stock (Requirement 1.C) */}
       <Modal
-        isOpen={isAddingNewCatalogueMed}
-        onClose={() => setIsAddingNewCatalogueMed(false)}
-        title="Add New Medicine to Shared Catalogue"
+        isOpen={isAddingNewMedicineModal}
+        onClose={() => {
+          setIsAddingNewMedicineModal(false);
+          setDuplicateMedicineFound(null);
+          setNewMedError(null);
+        }}
+        title="Add New Medicine to Catalog & Stock"
+        maxWidth="max-w-2xl"
       >
-        <form onSubmit={handleCreateCatalogueMedicine} className="space-y-4">
+        <form onSubmit={handleCreateNewMedicineAndStock} className="space-y-4">
           <p className="text-xs text-slate-500">
-            If a medicine does not yet exist in the MediStock shared catalogue, enter its verified composition details below.
+            If the medicine is not available in the existing catalog list, fill out its certified composition and inventory details below. New medicines are permanently stored in the catalog and added to your stock.
           </p>
 
-          <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">
-              Medicine Display Name *
-            </label>
-            <input
-              type="text"
-              required
-              value={newMedDisplayName}
-              onChange={(e) => setNewMedDisplayName(e.target.value)}
-              placeholder="e.g. Paracetamol 500 mg"
-              className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs"
-            />
-          </div>
+          {newMedError && (
+            <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 space-y-2">
+              <p className="font-semibold">{newMedError}</p>
+              {duplicateMedicineFound && (
+                <button
+                  type="button"
+                  onClick={() => handleSelectExistingDuplicate(duplicateMedicineFound)}
+                  className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg text-xs font-bold transition-colors flex items-center gap-1.5"
+                >
+                  <Check className="w-3.5 h-3.5" />
+                  Select Existing "{duplicateMedicineFound.display_name}" and Stock It
+                </button>
+              )}
+            </div>
+          )}
 
-          <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">
-              Generic Name / Composition *
-            </label>
-            <input
-              type="text"
-              required
-              value={newMedGenericName}
-              onChange={(e) => setNewMedGenericName(e.target.value)}
-              placeholder="e.g. Paracetamol IP"
-              className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs"
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {/* Medicine Display Name */}
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1">
-                Category *
+                Medicine Name *
               </label>
               <input
                 type="text"
                 required
-                value={newMedCategory}
-                onChange={(e) => setNewMedCategory(e.target.value)}
-                placeholder="e.g. Analgesic / Antipyretic"
-                className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs"
+                value={newMedDisplayName}
+                onChange={(e) => setNewMedDisplayName(e.target.value)}
+                placeholder="e.g. Amlodipine 5 mg Tablet"
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-medium focus:ring-2 focus:ring-emerald-600 focus:outline-none"
               />
             </div>
 
+            {/* Category Dropdown */}
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1">
-                Strength / Form *
+                Medicine Category *
+              </label>
+              <select
+                required
+                value={newMedCategory}
+                onChange={(e) => setNewMedCategory(e.target.value)}
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold focus:ring-2 focus:ring-emerald-600 focus:outline-none"
+              >
+                <option value="">-- Select Category --</option>
+                {categories.map((c) => (
+                  <option key={c.id || c.name} value={c.name}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Generic Name */}
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">
+                Generic Name *
               </label>
               <input
                 type="text"
                 required
-                value={newMedStrengthForm}
-                onChange={(e) => setNewMedStrengthForm(e.target.value)}
-                placeholder="e.g. 500mg Tablet"
-                className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs"
+                value={newMedGenericName}
+                onChange={(e) => setNewMedGenericName(e.target.value)}
+                placeholder="e.g. Amlodipine"
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-medium focus:ring-2 focus:ring-emerald-600 focus:outline-none"
+              />
+            </div>
+
+            {/* Composition / Active Ingredients */}
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">
+                Composition / Active Ingredients
+              </label>
+              <input
+                type="text"
+                value={newMedComposition}
+                onChange={(e) => setNewMedComposition(e.target.value)}
+                placeholder="e.g. Amlodipine Besylate IP 5 mg"
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-medium focus:ring-2 focus:ring-emerald-600 focus:outline-none"
+              />
+            </div>
+
+            {/* Strength */}
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">
+                Strength *
+              </label>
+              <input
+                type="text"
+                required
+                value={newMedStrength}
+                onChange={(e) => setNewMedStrength(e.target.value)}
+                placeholder="e.g. 5 mg, 500 mg, 10 mg/ml"
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-medium focus:ring-2 focus:ring-emerald-600 focus:outline-none"
+              />
+            </div>
+
+            {/* Dosage Form */}
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">
+                Dosage Form *
+              </label>
+              <select
+                value={newMedDosageForm}
+                onChange={(e) => setNewMedDosageForm(e.target.value)}
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold focus:ring-2 focus:ring-emerald-600 focus:outline-none"
+              >
+                <option value="Tablet">Tablet</option>
+                <option value="Capsule">Capsule</option>
+                <option value="Syrup">Syrup</option>
+                <option value="Oral Suspension">Oral Suspension</option>
+                <option value="Injection">Injection</option>
+                <option value="Ointment">Ointment</option>
+                <option value="Cream">Cream</option>
+                <option value="Eye Drops">Eye Drops</option>
+                <option value="Ear Drops">Ear Drops</option>
+                <option value="Inhaler / Respules">Inhaler / Respules</option>
+              </select>
+            </div>
+
+            {/* Manufacturer */}
+            <div className="sm:col-span-2">
+              <label className="block text-xs font-bold text-slate-700 mb-1">
+                Manufacturer
+              </label>
+              <input
+                type="text"
+                value={newMedManufacturer}
+                onChange={(e) => setNewMedManufacturer(e.target.value)}
+                placeholder="e.g. Cipla Ltd / Sun Pharmaceutical"
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-medium focus:ring-2 focus:ring-emerald-600 focus:outline-none"
+              />
+            </div>
+
+            {/* Stock Quantity */}
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">
+                Stock Quantity *
+              </label>
+              <input
+                type="number"
+                min="0"
+                required
+                value={newMedQuantity}
+                onChange={(e) => setNewMedQuantity(e.target.value)}
+                placeholder="e.g. 50"
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold focus:ring-2 focus:ring-emerald-600 focus:outline-none"
+              />
+            </div>
+
+            {/* Selling Price */}
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">
+                Price per unit (₹) *
+              </label>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                required
+                value={newMedPrice}
+                onChange={(e) => setNewMedPrice(e.target.value)}
+                placeholder="e.g. 28.50"
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold focus:ring-2 focus:ring-emerald-600 focus:outline-none"
+              />
+            </div>
+
+            {/* Batch Number */}
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">
+                Batch Number
+              </label>
+              <input
+                type="text"
+                value={newMedBatchNumber}
+                onChange={(e) => setNewMedBatchNumber(e.target.value)}
+                placeholder="e.g. BATCH-2026-X1"
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-mono focus:ring-2 focus:ring-emerald-600 focus:outline-none"
+              />
+            </div>
+
+            {/* Expiry Date */}
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">
+                Expiry Date *
+              </label>
+              <input
+                type="date"
+                required
+                value={newMedExpiryDate}
+                onChange={(e) => setNewMedExpiryDate(e.target.value)}
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold focus:ring-2 focus:ring-emerald-600 focus:outline-none"
               />
             </div>
           </div>
@@ -963,16 +1424,28 @@ export const PharmacyDashboardPage: React.FC = () => {
           <div className="pt-3 flex justify-end gap-2 border-t border-slate-100">
             <button
               type="button"
-              onClick={() => setIsAddingNewCatalogueMed(false)}
-              className="px-4 py-2 border border-slate-300 text-slate-700 rounded-lg text-xs font-semibold"
+              onClick={() => {
+                setIsAddingNewMedicineModal(false);
+                setDuplicateMedicineFound(null);
+                setNewMedError(null);
+              }}
+              className="px-4 py-2 border border-slate-300 text-slate-700 rounded-xl text-xs font-semibold hover:bg-slate-50"
             >
               Cancel
             </button>
             <button
               type="submit"
-              className="px-5 py-2 bg-emerald-700 text-white rounded-lg text-xs font-bold hover:bg-emerald-800"
+              disabled={isSavingNewMed}
+              className="px-5 py-2 bg-emerald-700 text-white rounded-xl text-xs font-bold hover:bg-emerald-800 disabled:opacity-50 flex items-center gap-1.5"
             >
-              Add to Catalogue
+              {isSavingNewMed ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  Saving Medicine & Stock...
+                </>
+              ) : (
+                'Save Medicine & Add to Stock'
+              )}
             </button>
           </div>
         </form>
