@@ -10066,7 +10066,16 @@ export function getCategoryCounts(medicines: Medicine[] = PREDEFINED_MEDICINES):
     if (counts[m.category] !== undefined) {
       counts[m.category]++;
     } else {
-      counts[m.category] = (counts[m.category] || 0) + 1;
+      const matched = THERAPEUTIC_CATEGORIES.find(c => 
+        c.name.toLowerCase() === m.category.toLowerCase() ||
+        c.name.toLowerCase().includes(m.category.toLowerCase()) ||
+        m.category.toLowerCase().includes(c.name.toLowerCase())
+      );
+      if (matched) {
+        counts[matched.name]++;
+      } else {
+        counts[m.category] = (counts[m.category] || 0) + 1;
+      }
     }
   });
   return counts;

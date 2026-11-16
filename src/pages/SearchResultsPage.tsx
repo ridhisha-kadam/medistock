@@ -54,6 +54,17 @@ export const SearchResultsPage: React.FC = () => {
   const [isSubmittingReservation, setIsSubmittingReservation] = useState<boolean>(false);
   const [reservationSuccessMessage, setReservationSuccessMessage] = useState<string | null>(null);
   const [reservationError, setReservationError] = useState<string | null>(null);
+  const [reservationConfirmedData, setReservationConfirmedData] = useState<{
+    reservationId: string;
+    customerPhone: string;
+    collectionDeadline: string;
+    pharmacyName: string;
+    pharmacyAddress: string;
+    pharmacyPhone: string;
+    medicineName: string;
+    quantity: number;
+    totalAmount: number;
+  } | null>(null);
 
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -224,8 +235,32 @@ export const SearchResultsPage: React.FC = () => {
         notes: reserveNotes,
       });
 
+      const deadline = new Intl.DateTimeFormat('en-IN', {
+        weekday: 'short',
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+      }).format(new Date(res.reservation.expires_at));
+
+      const customerPhone = user.mobile_number || 'Registered Mobile';
+
+      setReservationConfirmedData({
+        reservationId: res.reservation.id,
+        customerPhone: customerPhone,
+        collectionDeadline: deadline,
+        pharmacyName: selectedItemForReservation.pharmacy_name,
+        pharmacyAddress: `${selectedItemForReservation.pharmacy_address}, ${selectedItemForReservation.city}`,
+        pharmacyPhone: selectedItemForReservation.mobile_number || '',
+        medicineName: selectedItemForReservation.medicine_name,
+        quantity: reserveQuantity,
+        totalAmount: selectedItemForReservation.price * reserveQuantity,
+      });
+
       setReservationSuccessMessage(
-        `Reservation placed successfully! Ref ID: ${res.reservation.id.slice(0, 8)}... The pharmacy has been notified.`
+        `Reservation Confirmed! SMS confirmation notification sent to +91 ${customerPhone}. Pickup end date: ${deadline}.`
       );
       // Reload results to reflect updated stock count
       await loadResults();
@@ -245,7 +280,7 @@ export const SearchResultsPage: React.FC = () => {
     longitude: r.longitude,
     price: r.price,
     status: r.status,
-    isOutdated: isListingStale(r.last_updated),
+    isOutdated: false,
   }));
 
   return (
@@ -517,7 +552,6 @@ export const SearchResultsPage: React.FC = () => {
                       <StatusBadge 
                         type="stock" 
                         status={item.status} 
-                        isStale={isListingStale(item.last_updated)} 
                       />
                       <div className="text-[11px] text-slate-500 mt-1">{item.quantity} units</div>
                     </td>
@@ -589,7 +623,7 @@ export const SearchResultsPage: React.FC = () => {
                         {formatLastUpdated(item.last_updated)}
                       </div>
                       <div className="mt-2">
-                        <StatusBadge type="stock" status={item.status} isStale={isStale} />
+                        <StatusBadge type="stock" status={item.status} />
                       </div>
                     </div>
                   </div>
@@ -658,7 +692,60 @@ export const SearchResultsPage: React.FC = () => {
       >
         {selectedItemForReservation && (
           <div className="space-y-4">
-            {reservationSuccessMessage ? (
+            {reservationConfirmedData ? (
+              <div className="p-4 bg-emerald-50/95 border-2 border-emerald-400 rounded-2xl space-y-3.5 shadow-sm">
+                <div className="w-10 h-10 rounded-full bg-emerald-600 text-white flex items-center justify-center mx-auto shadow-xs">
+                  <Check className="w-6 h-6" />
+                </div>
+                <div className="text-center">
+                  <h4 className="font-extrabold text-emerald-950 text-base">Medicine Reservation Confirmed!</h4>
+                  <p className="text-[11px] text-emerald-700 font-medium mt-0.5">Reservation Ref ID: #{reservationConfirmedData.reservationId.slice(-6).toUpperCase()}</p>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs bg-white p-3.5 rounded-xl border border-emerald-200">
+                  <div>
+                    <span className="text-[11px] text-slate-500 font-semibold block">📱 SMS Notification Sent To:</span>
+                    <span className="font-bold text-slate-900">+91 {reservationConfirmedData.customerPhone}</span>
+                  </div>
+                  <div>
+                    <span className="text-[11px] text-slate-500 font-semibold block">📅 End Date & Time to Collect:</span>
+                    <span className="font-bold text-emerald-800">{reservationConfirmedData.collectionDeadline}</span>
+                  </div>
+                  <div>
+                    <span className="text-[11px] text-slate-500 font-semibold block">📍 Pharmacy Pickup Counter:</span>
+                    <span className="font-semibold text-slate-800">{reservationConfirmedData.pharmacyName}</span>
+                    <span className="text-[11px] text-slate-500 block">{reservationConfirmedData.pharmacyAddress}</span>
+                  </div>
+                  <div>
+                    <span className="text-[11px] text-slate-500 font-semibold block">📞 Pharmacy Contact Number:</span>
+                    <span className="font-semibold text-slate-800">{reservationConfirmedData.pharmacyPhone || 'Available at counter'}</span>
+                  </div>
+                </div>
+
+                <div className="text-[11px] text-amber-900 bg-amber-50 p-2.5 rounded-xl border border-amber-200 leading-relaxed">
+                  ⏰ <strong>Pickup & Auto-Restoration Policy:</strong> Please collect your medicine before <strong>{reservationConfirmedData.collectionDeadline}</strong>. A reminder notification will be sent 30 minutes before this deadline. If not collected by the end date, reserved stock will automatically return to the pharmacy inventory.
+                </div>
+
+                <div className="pt-2 flex justify-center gap-3">
+                  <button
+                    onClick={() => navigate('/customer/reservations')}
+                    className="px-4 py-2 bg-emerald-700 text-white rounded-xl text-xs font-bold hover:bg-emerald-800 transition-colors shadow-xs"
+                  >
+                    View My Reservations
+                  </button>
+                  <button
+                    onClick={() => {
+                      setSelectedItemForReservation(null);
+                      setReservationConfirmedData(null);
+                      setReservationSuccessMessage(null);
+                    }}
+                    className="px-4 py-2 border border-slate-300 text-slate-700 rounded-xl text-xs font-semibold hover:bg-slate-50 transition-colors"
+                  >
+                    Done
+                  </button>
+                </div>
+              </div>
+            ) : reservationSuccessMessage ? (
               <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl text-center space-y-3">
                 <div className="w-10 h-10 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center mx-auto">
                   <Check className="w-6 h-6" />

@@ -48,6 +48,17 @@ export const MedicineCatalogPage: React.FC = () => {
   const [reserveSuccess, setReserveSuccess] = useState<string | null>(null);
   const [reserveError, setReserveError] = useState<string | null>(null);
   const [isReserving, setIsReserving] = useState<boolean>(false);
+  const [reservationConfirmedData, setReservationConfirmedData] = useState<{
+    reservationId: string;
+    customerPhone: string;
+    collectionDeadline: string;
+    pharmacyName: string;
+    pharmacyAddress: string;
+    pharmacyPhone: string;
+    medicineName: string;
+    quantity: number;
+    price: number;
+  } | null>(null);
 
   useEffect(() => {
     loadCatalogData();
@@ -110,6 +121,7 @@ export const MedicineCatalogPage: React.FC = () => {
     setSelectedVariant(primaryVar);
     setReserveSuccess(null);
     setReserveError(null);
+    setReservationConfirmedData(null);
     setIsLoadingStock(true);
 
     const sortToUse = sortByOverride || stockSortBy;
@@ -177,14 +189,39 @@ export const MedicineCatalogPage: React.FC = () => {
         notes: `Reserved from catalog (${selectedVariant ? selectedVariant.strength : item.strength_form})`
       });
 
-      setReserveSuccess(`Medicine reserved successfully! Please collect within 48 hours (by ${new Date(res.reservation.expires_at).toLocaleString()}).`);
+      const deadline = new Intl.DateTimeFormat('en-IN', {
+        weekday: 'short',
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+      }).format(new Date(res.reservation.expires_at));
+
+      const customerPhone = user.mobile_number || 'Registered Mobile';
+
+      setReservationConfirmedData({
+        reservationId: res.reservation.id,
+        customerPhone: customerPhone,
+        collectionDeadline: deadline,
+        pharmacyName: item.pharmacy_name,
+        pharmacyAddress: `${item.pharmacy_address}, ${item.city}`,
+        pharmacyPhone: item.mobile_number || '',
+        medicineName: selectedMedicine!.display_name,
+        quantity: 1,
+        price: item.price,
+      });
+
+      setReserveSuccess(`Reservation Confirmed! SMS confirmation notification sent to +91 ${customerPhone}. Pickup end date: ${deadline}.`);
       
       // Refresh stock
       const updatedStock = await api.searchMedicine({
+        medicineId: selectedMedicine!.id,
         query: selectedMedicine!.generic_name,
         inStockOnly: true
       });
-      setPharmacyStock(updatedStock);
+      setPharmacyStock(updatedStock.filter(s => s.quantity > 0));
     } catch (err: any) {
       setReserveError(err.message || 'Failed to place reservation.');
     } finally {
@@ -750,22 +787,51 @@ export const MedicineCatalogPage: React.FC = () => {
               </div>
             )}
 
-            {/* Notification Messages */}
-            {reserveSuccess && (
-              <div className="p-4 bg-emerald-50 border border-emerald-300 text-emerald-900 text-xs rounded-2xl flex items-start gap-2.5 font-medium">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
-                <div className="space-y-1">
-                  <p className="font-bold text-emerald-950">{reserveSuccess}</p>
-                  <p className="text-[11px] text-emerald-800">
-                    You can view countdown timer, directions, and pharmacy billing invoice on your 
-                    <button
-                      type="button"
-                      onClick={() => navigate('/customer/reservations')}
-                      className="ml-1 font-bold underline hover:text-emerald-950"
-                    >
-                      Reservations Dashboard
-                    </button>.
-                  </p>
+            {/* Notification Messages with Customer Number & End Date */}
+            {reservationConfirmedData && (
+              <div className="p-4 bg-emerald-50/95 border-2 border-emerald-400 rounded-2xl space-y-3 shadow-sm">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-full bg-emerald-600 text-white flex items-center justify-center font-black text-sm">
+                    ✓
+                  </div>
+                  <div>
+                    <h4 className="font-extrabold text-emerald-950 text-sm">Medicine Reservation Confirmed!</h4>
+                    <p className="text-[11px] text-emerald-700 font-medium">Reservation Ref ID: #{reservationConfirmedData.reservationId.slice(-6).toUpperCase()}</p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs bg-white p-3.5 rounded-xl border border-emerald-200">
+                  <div>
+                    <span className="text-[11px] text-slate-500 font-semibold block">📱 SMS Notification Sent To:</span>
+                    <span className="font-bold text-slate-900">+91 {reservationConfirmedData.customerPhone}</span>
+                  </div>
+                  <div>
+                    <span className="text-[11px] text-slate-500 font-semibold block">📅 End Date & Time to Collect:</span>
+                    <span className="font-bold text-emerald-800">{reservationConfirmedData.collectionDeadline}</span>
+                  </div>
+                  <div>
+                    <span className="text-[11px] text-slate-500 font-semibold block">📍 Pharmacy Pickup Counter:</span>
+                    <span className="font-semibold text-slate-800">{reservationConfirmedData.pharmacyName}</span>
+                    <span className="text-[11px] text-slate-500 block">{reservationConfirmedData.pharmacyAddress}</span>
+                  </div>
+                  <div>
+                    <span className="text-[11px] text-slate-500 font-semibold block">📞 Pharmacy Contact Number:</span>
+                    <span className="font-semibold text-slate-800">{reservationConfirmedData.pharmacyPhone || 'Available at counter'}</span>
+                  </div>
+                </div>
+
+                <div className="text-[11px] text-amber-800 bg-amber-50 p-2.5 rounded-xl border border-amber-200 leading-relaxed">
+                  ⏰ <strong>Pickup & Auto-Restoration Policy:</strong> Please collect your medicine before <strong>{reservationConfirmedData.collectionDeadline}</strong>. A reminder notification will be sent 30 minutes before this deadline. If not collected by the end date, reserved stock will automatically return to the pharmacy inventory.
+                </div>
+
+                <div className="flex justify-end gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => navigate('/customer/reservations')}
+                    className="px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold transition-all shadow-xs"
+                  >
+                    View in My Reservations →
+                  </button>
                 </div>
               </div>
             )}

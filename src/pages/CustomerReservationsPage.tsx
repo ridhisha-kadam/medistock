@@ -136,6 +136,29 @@ export const CustomerReservationsPage: React.FC = () => {
 
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      {/* 30-Minute Urgent Expiry Alert Banner */}
+      {reservations.some(res => {
+        const isActive = res.status === 'PENDING' || res.status === 'RESERVED' || res.status === 'ACCEPTED' || res.status === 'READY_FOR_COLLECTION';
+        if (!isActive) return false;
+        const exp = res.expires_at ? new Date(res.expires_at).getTime() : new Date(res.created_at).getTime() + 48*60*60*1000;
+        const diff = exp - currentTime;
+        return diff > 0 && diff <= 30 * 60 * 1000;
+      }) && (
+        <div className="bg-rose-50 border-2 border-rose-400 rounded-2xl p-4 mb-6 shadow-md flex items-start gap-3.5">
+          <div className="w-10 h-10 rounded-xl bg-rose-600 text-white flex items-center justify-center shrink-0 font-bold text-lg">
+            ⏰
+          </div>
+          <div>
+            <h4 className="text-sm font-extrabold text-rose-950 mb-0.5">
+              URGENT PICKUP REMINDER: Less Than 30 Minutes Remaining!
+            </h4>
+            <p className="text-xs text-rose-900 leading-relaxed font-medium">
+              You have a medicine reservation expiring within 30 minutes! Please visit the pharmacy immediately to collect your medicine. If not collected by the deadline, reserved stock will be automatically returned to the pharmacy inventory.
+            </p>
+          </div>
+        </div>
+      )}
+
       <div className="flex items-center justify-between pb-6 border-b border-slate-200 mb-8">
         <div>
           <h1 className="text-2xl sm:text-3xl font-black text-slate-900">
@@ -265,6 +288,28 @@ export const CustomerReservationsPage: React.FC = () => {
                     <span>Total Amount: <strong className="text-emerald-700">₹{res.total_price}</strong></span>
                   </div>
 
+                  {/* Customer Phone Notification & Collection End Date Info */}
+                  <div className="mt-3 p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <span className="text-[11px] text-slate-500 font-medium block">📱 Customer Registered Number:</span>
+                      <span className="font-bold text-slate-900">+91 {user?.mobile_number || 'Registered Phone'}</span>
+                    </div>
+                    <div>
+                      <span className="text-[11px] text-slate-500 font-medium block">📅 End Date & Time to Collect:</span>
+                      <span className="font-bold text-emerald-800">
+                        {new Date(res.expires_at || new Date(res.created_at).getTime() + 48*60*60*1000).toLocaleString('en-IN', {
+                          weekday: 'short',
+                          day: 'numeric',
+                          month: 'short',
+                          year: 'numeric',
+                          hour: 'numeric',
+                          minute: '2-digit',
+                          hour12: true,
+                        })}
+                      </span>
+                    </div>
+                  </div>
+
                   {/* 48-Hour Live Countdown / Expiry Status Display */}
                   {isActive && (
                     <div className="mt-2.5 flex flex-wrap items-center gap-2">
@@ -277,17 +322,18 @@ export const CustomerReservationsPage: React.FC = () => {
                         {remaining.isApproaching ? `Approaching Deadline: ${remaining.text}` : `Collect within: ${remaining.text}`}
                       </span>
                       <span className="text-[11px] text-slate-500">
-                        (Expires: {new Date(res.expires_at || new Date(res.created_at).getTime() + 48*60*60*1000).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })})
+                        (Deadline: {new Date(res.expires_at || new Date(res.created_at).getTime() + 48*60*60*1000).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })})
                       </span>
                     </div>
                   )}
 
                   {res.status === 'EXPIRED' && (
-                    <div className="mt-2.5 p-2.5 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-800 flex items-center gap-2">
-                      <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
-                      <span>
-                        <strong>Expired:</strong> 48-hour pickup window has passed. Reserved medicine stock has been returned to pharmacy inventory.
-                      </span>
+                    <div className="mt-2.5 p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-800 flex items-start gap-2">
+                      <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                      <div>
+                        <strong className="block text-rose-950 font-bold">Uncollected Reservation Expired — Stock Restored</strong>
+                        <span>This medicine was not collected by the deadline. As per MediStock automated policy, reserved stock (+{res.quantity} units) has been automatically restored to {res.pharmacy?.name || 'pharmacy'} inventory.</span>
+                      </div>
                     </div>
                   )}
 

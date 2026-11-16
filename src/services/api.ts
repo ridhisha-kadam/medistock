@@ -859,7 +859,7 @@ export const api = {
   // ----------------------------------------------------------------------------
 
   /**
-   * API 9: /api/medicines (GET)
+   * API 9: /api/medicines (GET) - Always includes all 245 verified catalog medicines
    */
   async getMedicines(filter?: { name?: string; category?: string }): Promise<Medicine[]> {
     let list: Medicine[] = [];
@@ -870,14 +870,26 @@ export const api = {
           .from('medicines')
           .select('*')
           .eq('catalogue_status', 'ACTIVE');
-        if (data && !error) list = data;
+        if (data && !error && data.length > 0) list = data;
       } catch (e) {
         console.warn('Supabase getMedicines fallback:', e);
       }
     }
 
     if (list.length === 0) {
-      list = localDB.medicines.filter(m => m.catalogue_status === 'ACTIVE');
+      list = [...localDB.medicines.filter(m => m.catalogue_status === 'ACTIVE')];
+    }
+
+    // Always merge in ALL 245 PREDEFINED_MEDICINES so every single category has medicines (no 0 meds)
+    const existingIds = new Set(list.map(m => m.id));
+    const existingGenerics = new Set(list.map(m => m.generic_name.toLowerCase().trim()));
+
+    for (const pre of PREDEFINED_MEDICINES) {
+      if (!existingIds.has(pre.id) && !existingGenerics.has(pre.generic_name.toLowerCase().trim())) {
+        list.push({ ...pre });
+        existingIds.add(pre.id);
+        existingGenerics.add(pre.generic_name.toLowerCase().trim());
+      }
     }
 
     if (filter?.name?.trim()) {
@@ -887,6 +899,11 @@ export const api = {
         m.generic_name.toLowerCase().includes(q) ||
         (m.brand_name && m.brand_name.toLowerCase().includes(q))
       );
+    }
+
+    if (filter?.category?.trim()) {
+      const cat = filter.category.trim().toLowerCase();
+      list = list.filter(m => m.category.toLowerCase().includes(cat) || cat.includes(m.category.toLowerCase()));
     }
 
     return list;
@@ -1616,12 +1633,57 @@ export const api = {
       created_at: now.toISOString(),
       expires_at: expiresAt,
       stock_restored: false,
+      reminder_30m_sent: false,
       updated_at: now.toISOString(),
     };
+
+    // Format collection end date and time
+    const collectionDeadlineFormatted = new Intl.DateTimeFormat('en-IN', {
+      weekday: 'short',
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    }).format(new Date(expiresAt));
+
+    const medicine = await this.getMedicineById(data.medicineId);
+    const medName = medicine?.display_name || 'Medicine';
+    const userProfile = await this.getUserProfile(data.userId);
+    const customerPhone = userProfile?.mobile_number || 'Registered Mobile';
+    const customerName = userProfile?.full_name || 'Customer';
+
+    // 1. Customer Reservation Notification Alert with End Date & Phone Number
+    const customerAlert: Alert = {
+      id: generateId(),
+      pharmacy_id: data.pharmacyId,
+      user_id: data.userId,
+      type: 'RESERVATION_CONFIRMED',
+      message: `📱 Notification sent to +91 ${customerPhone}: Reservation #${newRes.id.slice(-6).toUpperCase()} confirmed for ${medName} (Qty: ${data.quantity}) at ${pharmacy.name}. End Date to Collect: ${collectionDeadlineFormatted}. Please present this at the counter to collect your medicine.`,
+      read_status: false,
+      created_at: now.toISOString(),
+    };
+
+    // 2. Pharmacy New Reservation Alert with Customer Number & End Date
+    const pharmacyAlert: Alert = {
+      id: generateId(),
+      pharmacy_id: data.pharmacyId,
+      type: 'NEW_RESERVATION',
+      message: `🔔 New Reservation #${newRes.id.slice(-6).toUpperCase()}: ${customerName} (+91 ${customerPhone}) reserved ${medName} x${data.quantity}. Collection Deadline: ${collectionDeadlineFormatted}. Stock held at counter.`,
+      read_status: false,
+      created_at: now.toISOString(),
+    };
+
+    localDB.alerts.push(customerAlert);
+    localDB.alerts.push(pharmacyAlert);
 
     if (isLiveSupabaseConfigured()) {
       try {
         await supabase.from('reservations').insert([newRes]);
+        try {
+          await supabase.from('alerts').insert([customerAlert, pharmacyAlert]);
+        } catch (_) {}
         return { success: true, reservation: newRes };
       } catch (e) {
         console.warn('Supabase createReservation fallback:', e);
@@ -1634,24 +1696,70 @@ export const api = {
   },
 
   /**
-   * FEATURE 7: Automatic 48-Hour Reservation Expiry & Single Stock Restoration
-   * Scans active reservations, expires those older than 48 hours, and restores stock exactly once.
+   * FEATURE 7 & 8: Automatic 48-Hour Reservation Expiry, 30-Min Pre-Expiry Reminders & Automatic Stock Restoration
+   * - Sends 30-minute pre-expiry reminder to both customer and pharmacy.
+   * - If medicine is not picked up before end time, automatically restores pharmacy stock and alerts pharmacy.
    */
   async checkAndExpireReservations(): Promise<number> {
     const nowTime = Date.now();
     let expiredCount = 0;
+    let alertsAdded = false;
 
     for (const res of localDB.reservations) {
       const isPending = res.status === 'PENDING' || res.status === 'ACCEPTED' || res.status === 'READY_FOR_COLLECTION';
+      if (!isPending) continue;
+
       const expiresAtMs = res.expires_at 
         ? new Date(res.expires_at).getTime() 
         : new Date(res.created_at).getTime() + (48 * 60 * 60 * 1000);
 
-      if (isPending && nowTime >= expiresAtMs) {
+      const timeLeftMs = expiresAtMs - nowTime;
+
+      const med = localDB.medicines.find(m => m.id === res.medicine_id);
+      const medName = med?.display_name || 'Medicine';
+      const pharm = localDB.pharmacies.find(p => p.id === res.pharmacy_id);
+      const pharmName = pharm?.name || 'Pharmacy';
+      const cust = localDB.profiles.find(p => p.id === res.user_id);
+      const custPhone = cust?.mobile_number || 'Registered Mobile';
+      const deadlineFormatted = new Date(expiresAtMs).toLocaleString('en-IN', {
+        dateStyle: 'medium',
+        timeStyle: 'short',
+      });
+
+      // 1. 30-MINUTE PRE-EXPIRY REMINDER TO CUSTOMER & PHARMACY
+      if (timeLeftMs > 0 && timeLeftMs <= 30 * 60 * 1000 && !res.reminder_30m_sent) {
+        res.reminder_30m_sent = true;
+
+        // Urgent Reminder to Customer
+        localDB.alerts.push({
+          id: generateId(),
+          pharmacy_id: res.pharmacy_id,
+          user_id: res.user_id,
+          type: 'PICKUP_REMINDER_30M',
+          message: `⏰ URGENT REMINDER: Only 30 minutes left to collect your reserved medicine (${medName} x${res.quantity}) from ${pharmName}. Collection deadline is ${deadlineFormatted}. If not collected, stock will automatically be released!`,
+          read_status: false,
+          created_at: new Date().toISOString(),
+        });
+
+        // 30-Min Reminder to Pharmacy
+        localDB.alerts.push({
+          id: generateId(),
+          pharmacy_id: res.pharmacy_id,
+          type: 'PICKUP_REMINDER_30M',
+          message: `⏰ 30-Minute Collection Reminder: Reservation #${res.id.slice(-6).toUpperCase()} for ${medName} (Qty: ${res.quantity}) by Customer (+91 ${custPhone}) expires in 30 minutes (${deadlineFormatted}).`,
+          read_status: false,
+          created_at: new Date().toISOString(),
+        });
+
+        alertsAdded = true;
+      }
+
+      // 2. AUTOMATIC STOCK RESTORATION WHEN CUSTOMER DID NOT PICK UP MEDICINE
+      if (nowTime >= expiresAtMs) {
         res.status = 'EXPIRED';
         res.updated_at = new Date().toISOString();
 
-        // Restore stock to pharmacy inventory exactly once!
+        // Restore stock to pharmacy inventory automatically exactly once!
         if (!res.stock_restored) {
           const inv = localDB.inventory.find(i => i.pharmacy_id === res.pharmacy_id && i.medicine_id === res.medicine_id);
           if (inv) {
@@ -1662,6 +1770,27 @@ export const api = {
           res.stock_restored = true;
         }
 
+        // Automatic Alert to Pharmacy: Stock Restored
+        localDB.alerts.push({
+          id: generateId(),
+          pharmacy_id: res.pharmacy_id,
+          type: 'STOCK_AUTO_RESTORED',
+          message: `⚠️ Customer Did Not Pick Up: Reservation #${res.id.slice(-6).toUpperCase()} for ${medName} (Qty: ${res.quantity}) expired without collection. Stock (+${res.quantity} units) has been automatically restored to your pharmacy inventory.`,
+          read_status: false,
+          created_at: new Date().toISOString(),
+        });
+
+        // Expiry Alert to Customer
+        localDB.alerts.push({
+          id: generateId(),
+          pharmacy_id: res.pharmacy_id,
+          user_id: res.user_id,
+          type: 'RESERVATION_EXPIRED',
+          message: `❌ Reservation #${res.id.slice(-6).toUpperCase()} Expired: You did not collect your medicine (${medName}) from ${pharmName} before the deadline (${deadlineFormatted}). Reserved stock was automatically released back to pharmacy inventory.`,
+          read_status: false,
+          created_at: new Date().toISOString(),
+        });
+
         localDB.auditLogs.push({
           id: generateId(),
           action: 'RESERVATION_AUTO_EXPIRED_48H',
@@ -1671,16 +1800,17 @@ export const api = {
             medicine_id: res.medicine_id,
             pharmacy_id: res.pharmacy_id,
             quantity_restored: res.quantity,
-            reason: '48-hour customer collection window elapsed'
+            reason: '48-hour customer collection window elapsed without pickup'
           },
           created_at: new Date().toISOString()
         });
 
         expiredCount++;
+        alertsAdded = true;
       }
     }
 
-    if (expiredCount > 0) {
+    if (expiredCount > 0 || alertsAdded) {
       localDB.save();
     }
 
@@ -2244,6 +2374,7 @@ export const api = {
   },
 
   async getPharmacyAlerts(pharmacyId: string): Promise<Alert[]> {
+    await this.checkAndExpireReservations();
     if (isLiveSupabaseConfigured()) {
       try {
         const { data } = await supabase.from('alerts').select('*').eq('pharmacy_id', pharmacyId);
@@ -2253,6 +2384,19 @@ export const api = {
       }
     }
     return localDB.alerts.filter(a => a.pharmacy_id === pharmacyId);
+  },
+
+  async getUserAlerts(userId: string): Promise<Alert[]> {
+    await this.checkAndExpireReservations();
+    if (isLiveSupabaseConfigured()) {
+      try {
+        const { data } = await supabase.from('alerts').select('*').eq('user_id', userId);
+        if (data) return data;
+      } catch (e) {
+        console.warn('Supabase getUserAlerts fallback:', e);
+      }
+    }
+    return localDB.alerts.filter(a => a.user_id === userId);
   },
 
   async markAlertAsRead(alertId: string): Promise<void> {

@@ -8,29 +8,21 @@ interface StatusBadgeProps {
   isStale?: boolean;
 }
 
-export const StatusBadge: React.FC<StatusBadgeProps> = ({ type, status, isStale }) => {
+export const StatusBadge: React.FC<StatusBadgeProps> = ({ type, status }) => {
   if (type === 'stock') {
-    if (isStale) {
-      return (
-        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-800 border border-amber-300">
-          <AlertTriangle className="w-3.5 h-3.5" />
-          May be outdated
-        </span>
-      );
-    }
     switch (status) {
       case 'AVAILABLE':
         return (
           <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 border border-emerald-300">
             <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-            Reported available
+            In Stock
           </span>
         );
       case 'LOW_STOCK':
         return (
           <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-800 border border-amber-300">
             <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
-            Limited stock
+            Low Stock
           </span>
         );
       case 'OUT_OF_STOCK':
@@ -38,7 +30,7 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({ type, status, isStale 
         return (
           <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-100 text-rose-800 border border-rose-300">
             <XCircle className="w-3.5 h-3.5 text-rose-600" />
-            Out of stock
+            Out of Stock
           </span>
         );
     }

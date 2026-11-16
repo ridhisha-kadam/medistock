@@ -198,6 +198,27 @@ export const PharmacyDashboardPage: React.FC = () => {
   const activeMedicine = medicinesCatalogue.find(m => m.id === selectedMedId) || null;
   const activeVariant = activeMedicine?.variants?.find(v => v.id === selectedVariantId) || activeMedicine?.variants?.[0] || null;
 
+  const suggestMedicinePrice = (med: Medicine): string => {
+    const g = (med.generic_name || '').toLowerCase();
+    if (g.includes('telmisartan')) return '48.00';
+    if (g.includes('amlodipine')) return '28.50';
+    if (g.includes('losartan')) return '35.00';
+    if (g.includes('atenolol')) return '22.00';
+    if (g.includes('metoprolol')) return '38.00';
+    if (g.includes('ramipril')) return '30.00';
+    if (g.includes('enalapril')) return '24.00';
+    if (g.includes('metformin')) return '32.00';
+    if (g.includes('glimepiride')) return '26.00';
+    if (g.includes('paracetamol')) return '15.00';
+    if (g.includes('ibuprofen')) return '18.00';
+    if (g.includes('amoxicillin')) return '65.00';
+    if (g.includes('azithromycin')) return '85.00';
+    if (g.includes('pantoprazole')) return '42.00';
+    if (g.includes('atorvastatin')) return '55.00';
+    if (g.includes('cetirizine')) return '18.00';
+    return '30.00';
+  };
+
   const handleSaveStock = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentPharm) return;
@@ -751,8 +772,47 @@ export const PharmacyDashboardPage: React.FC = () => {
                     />
                   </div>
 
+                  {/* Quick Select Medicine Chips from Catalog */}
+                  {categoryMedicines.length > 0 && (
+                    <div className="space-y-1.5 pt-1">
+                      <span className="text-[11px] text-slate-500 font-bold block">
+                        Quick Select from Catalog:
+                      </span>
+                      <div className="flex flex-wrap gap-1.5">
+                        {categoryMedicines.slice(0, 8).map((m) => (
+                          <button
+                            key={m.id}
+                            type="button"
+                            onClick={() => {
+                              setSelectedMedId(m.id);
+                              if (m.variants && m.variants.length > 0) {
+                                setSelectedVariantId(m.variants[0].id);
+                              } else {
+                                setSelectedVariantId('');
+                              }
+                              if (!stockPrice || stockPrice === '0') {
+                                setStockPrice(suggestMedicinePrice(m));
+                              }
+                            }}
+                            className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all text-left ${
+                              selectedMedId === m.id
+                                ? 'bg-emerald-700 text-white border-emerald-800 shadow-xs'
+                                : 'bg-white hover:bg-emerald-50 text-slate-800 border-slate-300'
+                            }`}
+                          >
+                            <span className="font-bold">{m.display_name}</span>
+                            <span className="text-[10px] ml-1 opacity-80">({m.strength_form})</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                   {/* Suggestions dropdown / select */}
                   <div>
+                    <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                      Or Select from Full Category Suggestions Dropdown:
+                    </label>
                     <select
                       required
                       value={selectedMedId}
@@ -763,6 +823,9 @@ export const PharmacyDashboardPage: React.FC = () => {
                           setSelectedVariantId(chosen.variants[0].id);
                         } else {
                           setSelectedVariantId('');
+                        }
+                        if (chosen && (!stockPrice || stockPrice === '0')) {
+                          setStockPrice(suggestMedicinePrice(chosen));
                         }
                       }}
                       className="w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-xl text-xs sm:text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-600 shadow-2xs"
@@ -1083,17 +1146,69 @@ export const PharmacyDashboardPage: React.FC = () => {
             </div>
           ) : (
             <div className="space-y-3">
-              {alerts.map((a) => (
-                <div key={a.id} className="p-4 bg-amber-50 border border-amber-200 rounded-xl text-xs flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
-                    <span className="font-medium text-amber-900">{a.message}</span>
+              {alerts.map((a) => {
+                const isAutoRestored = a.type === 'STOCK_AUTO_RESTORED';
+                const isReminder = a.type === 'PICKUP_REMINDER_30M';
+                const isNewRes = a.type === 'NEW_RESERVATION';
+
+                return (
+                  <div
+                    key={a.id}
+                    className={`p-4 rounded-xl text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 border ${
+                      isAutoRestored
+                        ? 'bg-emerald-50 border-emerald-300'
+                        : isReminder
+                        ? 'bg-amber-50 border-amber-300'
+                        : isNewRes
+                        ? 'bg-blue-50 border-blue-200'
+                        : 'bg-slate-50 border-slate-200'
+                    }`}
+                  >
+                    <div className="flex items-start sm:items-center gap-2.5">
+                      {isAutoRestored ? (
+                        <div className="w-7 h-7 rounded-lg bg-emerald-100 text-emerald-800 flex items-center justify-center shrink-0 font-bold">
+                          ✓
+                        </div>
+                      ) : isReminder ? (
+                        <div className="w-7 h-7 rounded-lg bg-amber-100 text-amber-800 flex items-center justify-center shrink-0 font-bold">
+                          ⏰
+                        </div>
+                      ) : isNewRes ? (
+                        <div className="w-7 h-7 rounded-lg bg-blue-100 text-blue-800 flex items-center justify-center shrink-0 font-bold">
+                          🔔
+                        </div>
+                      ) : (
+                        <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5 sm:mt-0" />
+                      )}
+
+                      <div>
+                        <div className="flex items-center gap-2 mb-0.5">
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider ${
+                            isAutoRestored
+                              ? 'bg-emerald-200 text-emerald-900'
+                              : isReminder
+                              ? 'bg-amber-200 text-amber-900'
+                              : isNewRes
+                              ? 'bg-blue-200 text-blue-900'
+                              : 'bg-slate-200 text-slate-800'
+                          }`}>
+                            {isAutoRestored ? 'Stock Auto-Restored' : isReminder ? '30-Min Pre-Expiry Alert' : isNewRes ? 'New Reservation' : 'System Alert'}
+                          </span>
+                        </div>
+                        <span className={`font-medium ${
+                          isAutoRestored ? 'text-emerald-950 font-semibold' : isReminder ? 'text-amber-950 font-semibold' : isNewRes ? 'text-blue-950' : 'text-slate-800'
+                        }`}>
+                          {a.message}
+                        </span>
+                      </div>
+                    </div>
+
+                    <span className="text-slate-400 text-[10px] whitespace-nowrap self-end sm:self-auto">
+                      {new Date(a.created_at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}
+                    </span>
                   </div>
-                  <span className="text-slate-400 text-[10px]">
-                    {new Date(a.created_at).toLocaleDateString()}
-                  </span>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>

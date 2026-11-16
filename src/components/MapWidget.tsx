@@ -62,10 +62,9 @@ export const MapWidget: React.FC<MapWidgetProps> = ({
     markersLayer.clearLayers();
 
     // Custom Icon generator
-    const createPharmacyIcon = (status?: string, isOutdated?: boolean) => {
+    const createPharmacyIcon = (status?: string) => {
       let color = '#10b981'; // emerald green
-      if (isOutdated) color = '#f59e0b'; // amber
-      else if (status === 'LOW_STOCK') color = '#f59e0b';
+      if (status === 'LOW_STOCK') color = '#f59e0b';
       else if (status === 'OUT_OF_STOCK') color = '#ef4444';
 
       return L.divIcon({
@@ -110,7 +109,7 @@ export const MapWidget: React.FC<MapWidgetProps> = ({
       bounds.push([m.latitude, m.longitude]);
 
       const marker = L.marker([m.latitude, m.longitude], {
-        icon: createPharmacyIcon(m.status, m.isOutdated),
+        icon: createPharmacyIcon(m.status),
       });
 
       const popupContent = `

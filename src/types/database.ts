@@ -126,6 +126,7 @@ export interface Reservation {
   expires_at: string; // ISO string = created_at + 48 hours
   collected_at?: string | null;
   stock_restored?: boolean; // Ensures 48h stock restoration happens exactly once
+  reminder_30m_sent?: boolean; // Tracks whether 30-minute pre-expiry reminder has been sent
   updated_at: string;
   // Joined relations
   user?: Profile;
@@ -165,6 +166,7 @@ export interface AuditLog {
 export interface Alert {
   id: string;
   pharmacy_id: string;
+  user_id?: string | null;
   listing_id?: string | null;
   type: string;
   message: string;
