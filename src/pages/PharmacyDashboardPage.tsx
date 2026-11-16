@@ -103,13 +103,27 @@ export const PharmacyDashboardPage: React.FC = () => {
       return;
     }
     loadAllPharmacyData();
+
+    const handleUpdate = () => loadAllPharmacyData();
+    window.addEventListener('medistock_alert_updated', handleUpdate);
+
+    return () => {
+      window.removeEventListener('medistock_alert_updated', handleUpdate);
+    };
   }, [user]);
 
   const loadAllPharmacyData = async () => {
     setIsLoading(true);
     try {
       const pharms = await api.getPharmacies({ onlyApproved: false });
-      const myPharm = pharms.find(p => p.owner_user_id === user!.id) || null;
+      let myPharm = pharms.find(p => p.owner_user_id === user!.id || (user!.email && p.email?.toLowerCase() === user!.email.toLowerCase())) || null;
+      
+      // Fallback: If logged in as pharmacy but no pharmacy record was directly linked
+      if (!myPharm && user!.role === 'PHARMACY') {
+        if (pharms.length > 0) {
+          myPharm = pharms[0];
+        }
+      }
       setCurrentPharm(myPharm);
 
       // Load dynamic therapeutic categories from database/catalog

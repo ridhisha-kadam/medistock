@@ -648,7 +648,7 @@ export const api = {
           query = query.eq('pin_code', filter.pinCode.trim());
         }
         const { data, error } = await query;
-        if (data && !error) {
+        if (data && !error && data.length > 0) {
           list = data;
         }
       } catch (e) {
@@ -656,14 +656,24 @@ export const api = {
       }
     }
 
-    if (list.length === 0) {
-      list = [...localDB.pharmacies];
-      if (filter?.onlyApproved !== false) {
-        list = list.filter(p => p.verification_status === 'APPROVED');
+    const localList = [...localDB.pharmacies];
+    if (list.length > 0) {
+      const existingIds = new Set(list.map(p => p.id));
+      for (const lp of localList) {
+        if (!existingIds.has(lp.id)) {
+          if (filter?.onlyApproved === false || lp.verification_status === 'APPROVED') {
+            list.push(lp);
+          }
+        }
       }
-      if (filter?.pinCode?.trim()) {
-        list = list.filter(p => p.pin_code.includes(filter.pinCode!.trim()));
-      }
+    } else {
+      list = filter?.onlyApproved === false 
+        ? localList 
+        : localList.filter(p => p.verification_status === 'APPROVED');
+    }
+
+    if (filter?.pinCode?.trim()) {
+      list = list.filter(p => p.pin_code?.includes(filter.pinCode!.trim()));
     }
 
     if (filter?.location?.trim()) {
@@ -1163,7 +1173,7 @@ export const api = {
         if (filter?.medicineId) query = query.eq('medicine_id', filter.medicineId);
 
         const { data, error } = await query;
-        if (data && !error) {
+        if (data && !error && data.length > 0) {
           list = data;
         }
       } catch (e) {
@@ -1171,19 +1181,27 @@ export const api = {
       }
     }
 
-    if (list.length === 0) {
-      list = [...localDB.inventory];
-      if (filter?.pharmacyId) list = list.filter(i => i.pharmacy_id === filter.pharmacyId);
-      if (filter?.medicineId) list = list.filter(i => i.medicine_id === filter.medicineId);
+    let localList = [...localDB.inventory];
+    if (filter?.pharmacyId) localList = localList.filter(i => i.pharmacy_id === filter.pharmacyId);
+    if (filter?.medicineId) localList = localList.filter(i => i.medicine_id === filter.medicineId);
 
-      list = list.map(item => ({
-        ...item,
-        medicine: localDB.medicines.find(m => m.id === item.medicine_id),
-        pharmacy: localDB.pharmacies.find(p => p.id === item.pharmacy_id),
-      }));
+    const populatedLocal = localList.map(item => ({
+      ...item,
+      medicine: localDB.medicines.find(m => m.id === item.medicine_id) || PREDEFINED_MEDICINES.find(m => m.id === item.medicine_id),
+      pharmacy: localDB.pharmacies.find(p => p.id === item.pharmacy_id),
+    }));
+
+    if (list.length > 0) {
+      const existingIds = new Set(list.map(i => i.id));
+      for (const loc of populatedLocal) {
+        if (!existingIds.has(loc.id)) {
+          list.push(loc);
+        }
+      }
+      return list;
     }
 
-    return list;
+    return populatedLocal;
   },
 
   /**
@@ -1224,9 +1242,31 @@ export const api = {
       created_at: now,
     };
 
+    // Always update localDB first for guaranteed local consistency
+    const existingIdx = localDB.inventory.findIndex(
+      i => i.pharmacy_id === data.pharmacyId && i.medicine_id === data.medicineId
+    );
+
+    let savedItem: InventoryItem;
+    if (existingIdx !== -1) {
+      localDB.inventory[existingIdx] = {
+        ...localDB.inventory[existingIdx],
+        quantity: data.quantity,
+        price: data.price,
+        expiry_date: data.expiryDate,
+        batch_number: data.batchNumber?.trim() || localDB.inventory[existingIdx].batch_number || null,
+        status,
+        last_updated: now,
+      };
+      savedItem = localDB.inventory[existingIdx];
+    } else {
+      localDB.inventory.push(newItem);
+      savedItem = newItem;
+    }
+    localDB.save();
+
     if (isLiveSupabaseConfigured()) {
       try {
-        // Upsert in Supabase
         const { data: existing } = await supabase
           .from('inventory')
           .select('id')
@@ -1243,37 +1283,15 @@ export const api = {
             status,
             last_updated: now,
           }).eq('id', existing.id);
-          return { ...newItem, id: existing.id };
         } else {
           await supabase.from('inventory').insert([newItem]);
-          return newItem;
         }
       } catch (e) {
-        console.warn('Supabase addInventoryItem fallback:', e);
+        console.warn('Supabase addInventoryItem sync fallback:', e);
       }
     }
 
-    const existingIdx = localDB.inventory.findIndex(
-      i => i.pharmacy_id === data.pharmacyId && i.medicine_id === data.medicineId
-    );
-
-    if (existingIdx !== -1) {
-      localDB.inventory[existingIdx] = {
-        ...localDB.inventory[existingIdx],
-        quantity: data.quantity,
-        price: data.price,
-        expiry_date: data.expiryDate,
-        batch_number: data.batchNumber?.trim() || localDB.inventory[existingIdx].batch_number || null,
-        status,
-        last_updated: now,
-      };
-      localDB.save();
-      return localDB.inventory[existingIdx];
-    }
-
-    localDB.inventory.push(newItem);
-    localDB.save();
-    return newItem;
+    return savedItem;
   },
 
   /**
@@ -1675,23 +1693,40 @@ export const api = {
       created_at: now.toISOString(),
     };
 
-    localDB.alerts.push(customerAlert);
-    localDB.alerts.push(pharmacyAlert);
+    localDB.alerts.unshift(customerAlert);
+    localDB.alerts.unshift(pharmacyAlert);
+
+    // Unconditionally save to localDB for instant local & offline persistence
+    localDB.reservations.unshift(newRes);
+    localDB.save();
 
     if (isLiveSupabaseConfigured()) {
       try {
-        await supabase.from('reservations').insert([newRes]);
+        await supabase.from('reservations').insert([{
+          id: newRes.id,
+          user_id: newRes.user_id,
+          pharmacy_id: newRes.pharmacy_id,
+          medicine_id: newRes.medicine_id,
+          quantity: newRes.quantity,
+          unit_price: newRes.unit_price,
+          total_price: newRes.total_price,
+          status: newRes.status,
+          notes: newRes.notes,
+          created_at: newRes.created_at,
+          updated_at: newRes.updated_at
+        }]);
         try {
           await supabase.from('alerts').insert([customerAlert, pharmacyAlert]);
         } catch (_) {}
-        return { success: true, reservation: newRes };
       } catch (e) {
-        console.warn('Supabase createReservation fallback:', e);
+        console.warn('Supabase createReservation sync:', e);
       }
     }
 
-    localDB.reservations.push(newRes);
-    localDB.save();
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('medistock_alert_updated'));
+    }
+
     return { success: true, reservation: newRes };
   },
 
@@ -2037,24 +2072,26 @@ export const api = {
    * API 28: /api/billing/user/{id} (GET)
    */
   async getUserBills(userId: string): Promise<Bill[]> {
-    if (isLiveSupabaseConfigured()) {
-      try {
-        const { data } = await supabase
-          .from('bills')
-          .select('*, customer:profiles(*), pharmacy:pharmacies(*)')
-          .eq('user_id', userId);
-        if (data) return data;
-      } catch (e) {
-        console.warn('Supabase getUserBills fallback:', e);
-      }
-    }
-    return localDB.bills
+    const localItems = localDB.bills
       .filter(b => b.user_id === userId)
       .map(b => ({
         ...b,
         customer: localDB.profiles.find(p => p.id === b.user_id),
         pharmacy: localDB.pharmacies.find(p => p.id === b.pharmacy_id),
       }));
+
+    if (isLiveSupabaseConfigured()) {
+      try {
+        const { data, error } = await supabase
+          .from('bills')
+          .select('*, customer:profiles(*), pharmacy:pharmacies(*)')
+          .eq('user_id', userId);
+        if (data && !error && data.length > 0) return data;
+      } catch (e) {
+        console.warn('Supabase getUserBills fallback:', e);
+      }
+    }
+    return localItems;
   },
 
   /**
@@ -2281,81 +2318,110 @@ export const api = {
   async getUserReservations(userId: string): Promise<Reservation[]> {
     await this.checkAndExpireReservations();
 
-    if (isLiveSupabaseConfigured()) {
-      try {
-        const { data } = await supabase
-          .from('reservations')
-          .select('*, user:profiles(*), pharmacy:pharmacies(*), medicine:medicines(*), bill:bills(*)')
-          .eq('user_id', userId)
-          .order('created_at', { ascending: false });
-        if (data) return data;
-      } catch (e) {
-        console.warn('Supabase getUserReservations fallback:', e);
-      }
-    }
-
-    return localDB.reservations
+    const localItems = localDB.reservations
       .filter(r => r.user_id === userId)
       .map(r => ({
         ...r,
         user: localDB.profiles.find(p => p.id === r.user_id),
         pharmacy: localDB.pharmacies.find(p => p.id === r.pharmacy_id),
-        medicine: localDB.medicines.find(m => m.id === r.medicine_id),
+        medicine: localDB.medicines.find(m => m.id === r.medicine_id) || PREDEFINED_MEDICINES.find(m => m.id === r.medicine_id),
         bill: localDB.bills.find(b => b.reservation_id === r.id),
-      }))
-      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+      }));
+
+    if (isLiveSupabaseConfigured()) {
+      try {
+        const { data, error } = await supabase
+          .from('reservations')
+          .select('*')
+          .eq('user_id', userId)
+          .order('created_at', { ascending: false });
+
+        if (data && !error && data.length > 0) {
+          const remoteItems: Reservation[] = data.map((r: any) => ({
+            ...r,
+            user: localDB.profiles.find(p => p.id === r.user_id),
+            pharmacy: localDB.pharmacies.find(p => p.id === r.pharmacy_id),
+            medicine: localDB.medicines.find(m => m.id === r.medicine_id) || PREDEFINED_MEDICINES.find(m => m.id === r.medicine_id),
+            bill: localDB.bills.find(b => b.reservation_id === r.id),
+          }));
+
+          const remoteIds = new Set(remoteItems.map(item => item.id));
+          const merged = [...remoteItems, ...localItems.filter(l => !remoteIds.has(l.id))];
+          return merged.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+        }
+      } catch (e) {
+        console.warn('Supabase getUserReservations fallback:', e);
+      }
+    }
+
+    return localItems.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   },
 
   async getPharmacyReservations(pharmacyId: string): Promise<Reservation[]> {
     await this.checkAndExpireReservations();
 
-    if (isLiveSupabaseConfigured()) {
-      try {
-        const { data } = await supabase
-          .from('reservations')
-          .select('*, user:profiles(*), pharmacy:pharmacies(*), medicine:medicines(*), bill:bills(*)')
-          .eq('pharmacy_id', pharmacyId)
-          .order('created_at', { ascending: false });
-        if (data) return data;
-      } catch (e) {
-        console.warn('Supabase getPharmacyReservations fallback:', e);
-      }
-    }
-
-    return localDB.reservations
+    const localItems = localDB.reservations
       .filter(r => r.pharmacy_id === pharmacyId)
       .map(r => ({
         ...r,
         user: localDB.profiles.find(p => p.id === r.user_id),
         pharmacy: localDB.pharmacies.find(p => p.id === r.pharmacy_id),
-        medicine: localDB.medicines.find(m => m.id === r.medicine_id),
+        medicine: localDB.medicines.find(m => m.id === r.medicine_id) || PREDEFINED_MEDICINES.find(m => m.id === r.medicine_id),
         bill: localDB.bills.find(b => b.reservation_id === r.id),
-      }))
-      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-  },
+      }));
 
-  async getPharmacyBills(pharmacyId: string): Promise<Bill[]> {
     if (isLiveSupabaseConfigured()) {
       try {
-        const { data } = await supabase
-          .from('bills')
-          .select('*, customer:profiles(*), pharmacy:pharmacies(*)')
+        const { data, error } = await supabase
+          .from('reservations')
+          .select('*')
           .eq('pharmacy_id', pharmacyId)
           .order('created_at', { ascending: false });
-        if (data) return data;
+
+        if (data && !error && data.length > 0) {
+          const remoteItems: Reservation[] = data.map((r: any) => ({
+            ...r,
+            user: localDB.profiles.find(p => p.id === r.user_id),
+            pharmacy: localDB.pharmacies.find(p => p.id === r.pharmacy_id),
+            medicine: localDB.medicines.find(m => m.id === r.medicine_id) || PREDEFINED_MEDICINES.find(m => m.id === r.medicine_id),
+            bill: localDB.bills.find(b => b.reservation_id === r.id),
+          }));
+
+          const remoteIds = new Set(remoteItems.map(item => item.id));
+          const merged = [...remoteItems, ...localItems.filter(l => !remoteIds.has(l.id))];
+          return merged.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+        }
       } catch (e) {
-        console.warn('Supabase getPharmacyBills fallback:', e);
+        console.warn('Supabase getPharmacyReservations fallback:', e);
       }
     }
 
-    return localDB.bills
+    return localItems.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  },
+
+  async getPharmacyBills(pharmacyId: string): Promise<Bill[]> {
+    const localItems = localDB.bills
       .filter(b => b.pharmacy_id === pharmacyId)
       .map(b => ({
         ...b,
         customer: localDB.profiles.find(p => p.id === b.user_id),
         pharmacy: localDB.pharmacies.find(p => p.id === b.pharmacy_id),
-      }))
-      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+      }));
+
+    if (isLiveSupabaseConfigured()) {
+      try {
+        const { data, error } = await supabase
+          .from('bills')
+          .select('*, customer:profiles(*), pharmacy:pharmacies(*)')
+          .eq('pharmacy_id', pharmacyId)
+          .order('created_at', { ascending: false });
+        if (data && !error && data.length > 0) return data;
+      } catch (e) {
+        console.warn('Supabase getPharmacyBills fallback:', e);
+      }
+    }
+
+    return localItems.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   },
 
   async hasAdminAccount(): Promise<boolean> {
@@ -2388,15 +2454,33 @@ export const api = {
 
   async getUserAlerts(userId: string): Promise<Alert[]> {
     await this.checkAndExpireReservations();
+    const localItems = localDB.alerts.filter(a => a.user_id === userId);
     if (isLiveSupabaseConfigured()) {
       try {
-        const { data } = await supabase.from('alerts').select('*').eq('user_id', userId);
-        if (data) return data;
+        const { data, error } = await supabase.from('alerts').select('*').eq('user_id', userId);
+        if (data && !error && data.length > 0) {
+          const ids = new Set(data.map((d: any) => d.id));
+          return [...data, ...localItems.filter(l => !ids.has(l.id))].sort(
+            (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+          );
+        }
       } catch (e) {
         console.warn('Supabase getUserAlerts fallback:', e);
       }
     }
-    return localDB.alerts.filter(a => a.user_id === userId);
+    return localItems.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  },
+
+  async markAllUserAlertsAsRead(userId: string): Promise<void> {
+    for (const a of localDB.alerts) {
+      if (a.user_id === userId) a.read_status = true;
+    }
+    localDB.save();
+    if (isLiveSupabaseConfigured()) {
+      try {
+        await supabase.from('alerts').update({ read_status: true }).eq('user_id', userId);
+      } catch (_) {}
+    }
   },
 
   async markAlertAsRead(alertId: string): Promise<void> {
