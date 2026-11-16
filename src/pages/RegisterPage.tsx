@@ -186,7 +186,7 @@ export const RegisterPage: React.FC = () => {
             }`}
           >
             <User className="w-4 h-4 text-emerald-600" />
-            I need medicine
+            Customer
           </button>
 
           <button
@@ -199,7 +199,7 @@ export const RegisterPage: React.FC = () => {
             }`}
           >
             <Store className="w-4 h-4 text-emerald-600" />
-            I run a pharmacy
+            Pharmacy
           </button>
 
           <button

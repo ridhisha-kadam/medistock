@@ -122,8 +122,6 @@ export const SearchResultsPage: React.FC = () => {
     if (selectedCategory.trim()) nextParams.append('category', selectedCategory.trim());
     if (query.trim()) {
       nextParams.append('q', query.trim());
-    } else if (selectedCategory.trim()) {
-      nextParams.append('q', selectedCategory.trim());
     }
     if (location.trim()) {
       nextParams.append('loc', location.trim());
@@ -144,8 +142,8 @@ export const SearchResultsPage: React.FC = () => {
     const nextParams = new URLSearchParams(searchParams);
     if (newCat) {
       nextParams.set('category', newCat);
-      nextParams.set('q', newCat);
-      setQuery(newCat);
+      nextParams.delete('q'); // Clear search text so user sees all medicines for this category first
+      setQuery('');
     } else {
       nextParams.delete('category');
     }
@@ -157,6 +155,7 @@ export const SearchResultsPage: React.FC = () => {
     setQuery(med.generic_name);
     const nextParams = new URLSearchParams(searchParams);
     nextParams.set('q', med.generic_name);
+    if (selectedCategory) nextParams.set('category', selectedCategory);
     setSearchParams(nextParams);
   };
 
@@ -325,18 +324,18 @@ export const SearchResultsPage: React.FC = () => {
 
       {/* Disease Medicines Selection Bar (When BP or any disease is searched / selected) */}
       {diseaseInfo && diseaseInfo.medicines.length > 0 && (
-        <div className="bg-gradient-to-r from-emerald-50/90 via-white to-emerald-50/50 p-5 rounded-2xl border border-emerald-300 shadow-sm mb-6">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3 pb-3 border-b border-emerald-200/70">
-            <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-lg bg-emerald-700 text-white flex items-center justify-center font-black text-sm shrink-0">
+        <div className="bg-gradient-to-r from-emerald-50/90 via-white to-emerald-50/50 p-6 rounded-2xl border-2 border-emerald-400 shadow-sm mb-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4 pb-3 border-b border-emerald-200">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-emerald-700 text-white flex items-center justify-center font-black text-lg shadow-sm shrink-0">
                 💊
               </div>
               <div>
-                <h3 className="font-extrabold text-slate-900 text-sm sm:text-base">
-                  Medicines for {diseaseInfo.categoryName} ({diseaseInfo.medicines.length} verified generic medicines)
+                <h3 className="font-black text-slate-900 text-base sm:text-lg">
+                  Medicines for {diseaseInfo.categoryName}
                 </h3>
-                <p className="text-xs text-emerald-800">
-                  Click any medicine below to see nearby pharmacies where it is stocked with distance & price.
+                <p className="text-xs text-emerald-800 font-medium">
+                  {diseaseInfo.medicines.length} verified medicines. Click any medicine below to see nearby pharmacies with current stock & distance.
                 </p>
               </div>
             </div>
@@ -344,11 +343,11 @@ export const SearchResultsPage: React.FC = () => {
               to={`/catalog?category=${encodeURIComponent(diseaseInfo.categoryName)}`}
               className="text-xs text-emerald-700 hover:text-emerald-900 font-bold flex items-center gap-1 shrink-0"
             >
-              View catalog category →
+              View all in catalog →
             </Link>
           </div>
 
-          <div className="flex flex-wrap gap-2">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
             {diseaseInfo.medicines.map((med) => {
               const isSelected = query.trim().toLowerCase() === med.generic_name.toLowerCase() || 
                                  query.trim().toLowerCase() === med.display_name.toLowerCase();
@@ -356,18 +355,23 @@ export const SearchResultsPage: React.FC = () => {
                 <button
                   key={med.id}
                   onClick={() => handleSelectMedicineFromDisease(med)}
-                  className={`px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
+                  className={`p-3.5 rounded-xl text-left transition-all border flex flex-col justify-between ${
                     isSelected
-                      ? 'bg-emerald-800 text-white shadow-md ring-2 ring-emerald-500 scale-[1.02]'
-                      : 'bg-white hover:bg-emerald-100/80 text-emerald-950 border border-emerald-200 shadow-sm'
+                      ? 'bg-emerald-800 text-white border-emerald-950 shadow-md ring-2 ring-emerald-500 scale-[1.02]'
+                      : 'bg-white hover:bg-emerald-50/80 text-slate-900 border-slate-200 hover:border-emerald-400 shadow-sm'
                   }`}
                 >
-                  <span>{med.generic_name}</span>
-                  <span className={`text-[10px] px-1.5 py-0.5 rounded font-normal ${
-                    isSelected ? 'bg-emerald-950 text-emerald-200' : 'bg-emerald-100 text-emerald-800'
-                  }`}>
-                    {med.strength_form}
-                  </span>
+                  <div>
+                    <div className="font-extrabold text-sm mb-1 line-clamp-1">{med.generic_name}</div>
+                    <div className={`text-[11px] font-semibold ${isSelected ? 'text-emerald-200' : 'text-emerald-700'}`}>
+                      {med.strength_form}
+                    </div>
+                  </div>
+                  <div className="mt-2.5 pt-2 border-t border-slate-100/30 flex items-center justify-between text-[10px] font-bold">
+                    <span className={isSelected ? 'text-emerald-300' : 'text-slate-500'}>
+                      {isSelected ? '✓ Showing Pharmacies' : 'View Pharmacies →'}
+                    </span>
+                  </div>
                 </button>
               );
             })}
@@ -381,10 +385,14 @@ export const SearchResultsPage: React.FC = () => {
           <h2 className="text-xl font-bold text-slate-900">
             {isLoading ? (
               'Searching nearby pharmacies...'
+            ) : queryParam ? (
+              `${results.length} pharmacy listing${results.length === 1 ? '' : 's'} with stock for '${queryParam}'`
+            ) : diseaseInfo ? (
+              `Available pharmacy stock for ${diseaseInfo.categoryName} (${results.length} listings)`
             ) : results.length > 0 ? (
-              `${results.length} listing${results.length === 1 ? '' : 's'} for '${queryParam || 'All Medicines'}'`
+              `${results.length} pharmacy listings available`
             ) : (
-              `0 listings found`
+              `0 pharmacy listings found`
             )}
           </h2>
           {locParam && (
