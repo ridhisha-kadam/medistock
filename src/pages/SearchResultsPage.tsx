@@ -12,10 +12,14 @@ import {
   Loader2, 
   SlidersHorizontal,
   Layers,
-  ArrowUpDown
+  ArrowUpDown,
+  Pill,
+  BookOpen,
+  ChevronRight
 } from 'lucide-react';
 import { api, isListingStale, getCoordinatesForLocation } from '../services/api';
-import { SearchResultItem } from '../types/database';
+import { SearchResultItem, Medicine } from '../types/database';
+import { THERAPEUTIC_CATEGORIES, getMedicinesForDiseaseOrCategory } from '../data/medicineCatalogData';
 import { StatusBadge } from '../components/StatusBadge';
 import { MapWidget, MapMarkerItem } from '../components/MapWidget';
 import { Modal } from '../components/Modal';
@@ -25,11 +29,13 @@ import { useAuth } from '../context/AuthContext';
 export const SearchResultsPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const queryParam = searchParams.get('q') || '';
+  const categoryParam = searchParams.get('category') || '';
   const locParam = searchParams.get('loc') || '';
   const latParam = searchParams.get('lat');
   const lngParam = searchParams.get('lng');
 
   const [query, setQuery] = useState(queryParam);
+  const [selectedCategory, setSelectedCategory] = useState(categoryParam);
   const [location, setLocation] = useState(locParam);
   const [userLat, setUserLat] = useState<number | undefined>(latParam ? parseFloat(latParam) : undefined);
   const [userLng, setUserLng] = useState<number | undefined>(lngParam ? parseFloat(lngParam) : undefined);
@@ -51,6 +57,9 @@ export const SearchResultsPage: React.FC = () => {
 
   const { user } = useAuth();
   const navigate = useNavigate();
+
+  // Disease medicines resolver (e.g. searching "BP" or choosing "Blood Pressure (BP)")
+  const diseaseInfo = getMedicinesForDiseaseOrCategory(selectedCategory || queryParam);
 
   // Auto-detect customer's live geolocation on mount if not already in URL
   useEffect(() => {
@@ -75,6 +84,13 @@ export const SearchResultsPage: React.FC = () => {
     }
   }, []);
 
+  // Sync state with search params changes
+  useEffect(() => {
+    setQuery(queryParam);
+    setSelectedCategory(categoryParam);
+    setLocation(locParam);
+  }, [queryParam, categoryParam, locParam]);
+
   // Load results whenever search params, filters, or user location change
   useEffect(() => {
     loadResults();
@@ -85,6 +101,7 @@ export const SearchResultsPage: React.FC = () => {
     try {
       const data = await api.searchMedicine({
         query: queryParam,
+        category: categoryParam || selectedCategory,
         location: locParam === 'Current Location' ? '' : locParam,
         userLat: userLat,
         userLng: userLng,
@@ -102,7 +119,12 @@ export const SearchResultsPage: React.FC = () => {
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const nextParams = new URLSearchParams();
-    if (query.trim()) nextParams.append('q', query.trim());
+    if (selectedCategory.trim()) nextParams.append('category', selectedCategory.trim());
+    if (query.trim()) {
+      nextParams.append('q', query.trim());
+    } else if (selectedCategory.trim()) {
+      nextParams.append('q', selectedCategory.trim());
+    }
     if (location.trim()) {
       nextParams.append('loc', location.trim());
       const coords = getCoordinatesForLocation(location.trim(), location.trim());
@@ -114,6 +136,27 @@ export const SearchResultsPage: React.FC = () => {
       nextParams.append('lat', userLat.toString());
       nextParams.append('lng', userLng.toString());
     }
+    setSearchParams(nextParams);
+  };
+
+  const handleCategoryChange = (newCat: string) => {
+    setSelectedCategory(newCat);
+    const nextParams = new URLSearchParams(searchParams);
+    if (newCat) {
+      nextParams.set('category', newCat);
+      nextParams.set('q', newCat);
+      setQuery(newCat);
+    } else {
+      nextParams.delete('category');
+    }
+    setSearchParams(nextParams);
+  };
+
+  // Clicking a specific medicine under the disease (e.g. Amlodipine or Telmisartan for BP)
+  const handleSelectMedicineFromDisease = (med: Medicine) => {
+    setQuery(med.generic_name);
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.set('q', med.generic_name);
     setSearchParams(nextParams);
   };
 
@@ -211,18 +254,44 @@ export const SearchResultsPage: React.FC = () => {
       {/* Top Search Controls Bar (Fig 9.2) */}
       <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 mb-6">
         <form onSubmit={handleSearchSubmit} className="flex flex-col md:flex-row gap-3">
+          {/* Disease / Therapeutic Category Dropdown */}
+          <div className="w-full md:w-60 relative flex items-center">
+            <select
+              value={selectedCategory}
+              onChange={(e) => handleCategoryChange(e.target.value)}
+              className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 text-xs sm:text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:bg-white transition-all cursor-pointer"
+            >
+              <option value="">All Diseases & Categories</option>
+              <option value="Blood Pressure (BP) and Hypertension">Blood Pressure (BP)</option>
+              <option value="Diabetes and Blood Sugar">Diabetes / Sugar</option>
+              <option value="Heart Diseases">Heart Diseases</option>
+              <option value="Fever">Fever</option>
+              <option value="Pain Relief">Pain Relief</option>
+              <option value="Cold and Cough">Cold & Cough</option>
+              <option value="Asthma and COPD">Asthma & COPD</option>
+              <option value="Thyroid Disorders">Thyroid Disorders</option>
+              <option value="Gastric Problems and Acidity">Gastric & Acidity</option>
+              <option value="Bacterial Infections">Antibiotics & Infections</option>
+              {THERAPEUTIC_CATEGORIES.filter(c => 
+                !['Blood Pressure (BP) and Hypertension', 'Diabetes and Blood Sugar', 'Heart Diseases', 'Fever', 'Pain Relief', 'Cold and Cough', 'Asthma and COPD', 'Thyroid Disorders', 'Gastric Problems and Acidity', 'Bacterial Infections'].includes(c.name)
+              ).map(c => (
+                <option key={c.id} value={c.name}>{c.name}</option>
+              ))}
+            </select>
+          </div>
+
           <div className="flex-1 relative flex items-center">
             <Search className="w-5 h-5 text-slate-400 absolute left-3.5 pointer-events-none" />
             <input
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search medicine (e.g. Paracetamol 500 mg)"
+              placeholder="Search medicine (e.g. Amlodipine, Paracetamol) or disease (e.g. BP)"
               className="w-full pl-11 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:bg-white transition-all font-medium"
             />
           </div>
 
-          <div className="w-full md:w-64 relative flex items-center">
+          <div className="w-full md:w-56 relative flex items-center">
             <MapPin className="w-5 h-5 text-slate-400 absolute left-3.5 pointer-events-none" />
             <input
               type="text"
@@ -235,7 +304,7 @@ export const SearchResultsPage: React.FC = () => {
 
           <button
             type="submit"
-            className="flex items-center justify-center gap-2 px-6 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-xl shadow-sm transition-all text-sm"
+            className="flex items-center justify-center gap-2 px-6 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-xl shadow-sm transition-all text-sm whitespace-nowrap"
           >
             <Search className="w-4 h-4" />
             Search
@@ -253,6 +322,58 @@ export const SearchResultsPage: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {/* Disease Medicines Selection Bar (When BP or any disease is searched / selected) */}
+      {diseaseInfo && diseaseInfo.medicines.length > 0 && (
+        <div className="bg-gradient-to-r from-emerald-50/90 via-white to-emerald-50/50 p-5 rounded-2xl border border-emerald-300 shadow-sm mb-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3 pb-3 border-b border-emerald-200/70">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-lg bg-emerald-700 text-white flex items-center justify-center font-black text-sm shrink-0">
+                💊
+              </div>
+              <div>
+                <h3 className="font-extrabold text-slate-900 text-sm sm:text-base">
+                  Medicines for {diseaseInfo.categoryName} ({diseaseInfo.medicines.length} verified generic medicines)
+                </h3>
+                <p className="text-xs text-emerald-800">
+                  Click any medicine below to see nearby pharmacies where it is stocked with distance & price.
+                </p>
+              </div>
+            </div>
+            <Link
+              to={`/catalog?category=${encodeURIComponent(diseaseInfo.categoryName)}`}
+              className="text-xs text-emerald-700 hover:text-emerald-900 font-bold flex items-center gap-1 shrink-0"
+            >
+              View catalog category →
+            </Link>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            {diseaseInfo.medicines.map((med) => {
+              const isSelected = query.trim().toLowerCase() === med.generic_name.toLowerCase() || 
+                                 query.trim().toLowerCase() === med.display_name.toLowerCase();
+              return (
+                <button
+                  key={med.id}
+                  onClick={() => handleSelectMedicineFromDisease(med)}
+                  className={`px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${
+                    isSelected
+                      ? 'bg-emerald-800 text-white shadow-md ring-2 ring-emerald-500 scale-[1.02]'
+                      : 'bg-white hover:bg-emerald-100/80 text-emerald-950 border border-emerald-200 shadow-sm'
+                  }`}
+                >
+                  <span>{med.generic_name}</span>
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded font-normal ${
+                    isSelected ? 'bg-emerald-950 text-emerald-200' : 'bg-emerald-100 text-emerald-800'
+                  }`}>
+                    {med.strength_form}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Results Header & Filter Bar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-200 mb-6 gap-4">

@@ -184,6 +184,145 @@ class LocalDatabaseStore {
       this.medicines = merged;
       this.save();
     }
+
+    // Ensure verified approved pharmacies and inventory exist for testing search and reservations
+    if (!this.pharmacies || this.pharmacies.length === 0) {
+      this.initDefaultPharmaciesAndInventory();
+    }
+  }
+
+  private initDefaultPharmaciesAndInventory() {
+    const defaultPharmacies: Pharmacy[] = [
+      {
+        id: 'pharm-dharwad-1',
+        owner_user_id: 'owner-1',
+        name: 'Sanjeevani Medicals & Generics',
+        owner_name: 'Rajesh Patil',
+        licence_number: 'KA-DH-2022-7789',
+        address: 'Station Road, Gandhinagar',
+        city: 'Dharwad',
+        state: 'Karnataka',
+        pin_code: '580001',
+        latitude: 15.4505,
+        longitude: 75.0180,
+        mobile_number: '9845123456',
+        email: 'sanjeevani.dharwad@gmail.com',
+        verification_status: 'APPROVED',
+        created_at: '2026-01-01T00:00:00.000Z',
+        updated_at: '2026-01-01T00:00:00.000Z',
+      },
+      {
+        id: 'pharm-dharwad-2',
+        owner_user_id: 'owner-2',
+        name: 'City Medicos & Drug House',
+        owner_name: 'Suresh Kulkarni',
+        licence_number: 'KA-DH-2021-4432',
+        address: 'Near CBT, Line Bazaar',
+        city: 'Dharwad',
+        state: 'Karnataka',
+        pin_code: '580001',
+        latitude: 15.4595,
+        longitude: 75.0115,
+        mobile_number: '9448123456',
+        email: 'citymedicos.dharwad@gmail.com',
+        verification_status: 'APPROVED',
+        created_at: '2026-01-01T00:00:00.000Z',
+        updated_at: '2026-01-01T00:00:00.000Z',
+      },
+      {
+        id: 'pharm-hubli-1',
+        owner_user_id: 'owner-3',
+        name: 'Apollo Pharmacy Vidyanagar',
+        owner_name: 'Mahesh Joshi',
+        licence_number: 'KA-HB-2023-1122',
+        address: 'PB Road, Vidyanagar',
+        city: 'Hubballi',
+        state: 'Karnataka',
+        pin_code: '580024',
+        latitude: 15.3720,
+        longitude: 75.1180,
+        mobile_number: '9741234567',
+        email: 'apollo.vidyanagar@gmail.com',
+        verification_status: 'APPROVED',
+        created_at: '2026-01-01T00:00:00.000Z',
+        updated_at: '2026-01-01T00:00:00.000Z',
+      },
+      {
+        id: 'pharm-hubli-2',
+        owner_user_id: 'owner-4',
+        name: 'Old Hubli LifeCare Druggists (OBLI)',
+        owner_name: 'Anand Deshpande',
+        licence_number: 'KA-HB-2020-9988',
+        address: 'Durgad Bail, Old Hubli',
+        city: 'Hubballi',
+        state: 'Karnataka',
+        pin_code: '580030',
+        latitude: 15.3420,
+        longitude: 75.1400,
+        mobile_number: '9980123456',
+        email: 'lifecare.oldhubli@gmail.com',
+        verification_status: 'APPROVED',
+        created_at: '2026-01-01T00:00:00.000Z',
+        updated_at: '2026-01-01T00:00:00.000Z',
+      },
+    ];
+
+    this.pharmacies = defaultPharmacies;
+
+    // Filter key common medicines for pharmacy stock (BP, Diabetes, Fever, Pain, Heart, etc.)
+    const keyMedicines = this.medicines.filter(m => {
+      const g = m.generic_name.toLowerCase();
+      return (
+        g.includes('amlodipine') ||
+        g.includes('telmisartan') ||
+        g.includes('losartan') ||
+        g.includes('atenolol') ||
+        g.includes('enalapril') ||
+        g.includes('metformin') ||
+        g.includes('glimepiride') ||
+        g.includes('paracetamol') ||
+        g.includes('ibuprofen') ||
+        g.includes('amoxicillin') ||
+        g.includes('azithromycin') ||
+        g.includes('pantoprazole') ||
+        g.includes('cetirizine') ||
+        g.includes('salbutamol') ||
+        g.includes('atorvastatin')
+      );
+    });
+
+    const invList: InventoryItem[] = [];
+    let invCounter = 1;
+
+    for (const pharm of defaultPharmacies) {
+      for (const med of keyMedicines) {
+        const qty = (pharm.id === 'pharm-dharwad-1') ? 45 : (pharm.id === 'pharm-dharwad-2') ? 25 : 60;
+        const price = med.generic_name.toLowerCase().includes('telmisartan') ? 48.00
+          : med.generic_name.toLowerCase().includes('amlodipine') ? 28.50
+          : med.generic_name.toLowerCase().includes('losartan') ? 35.00
+          : med.generic_name.toLowerCase().includes('atenolol') ? 22.00
+          : med.generic_name.toLowerCase().includes('metformin') ? 32.00
+          : med.generic_name.toLowerCase().includes('paracetamol') ? 18.00
+          : 45.00;
+
+        invList.push({
+          id: `inv-${invCounter++}`,
+          pharmacy_id: pharm.id,
+          medicine_id: med.id,
+          quantity: qty,
+          price: price,
+          status: qty > 10 ? 'AVAILABLE' : (qty > 0 ? 'LOW_STOCK' : 'OUT_OF_STOCK'),
+          expiry_date: '2027-12-31',
+          created_at: new Date(Date.now() - 3600000).toISOString(),
+          updated_at: new Date(Date.now() - 1800000).toISOString(),
+          medicine: med,
+          pharmacy: pharm,
+        });
+      }
+    }
+
+    this.inventory = invList;
+    this.save();
   }
 
   save() {
@@ -1202,6 +1341,7 @@ export const api = {
    */
   async searchMedicine(params: {
     query?: string;
+    category?: string;
     location?: string;
     userLat?: number;
     userLng?: number;
@@ -1227,6 +1367,15 @@ export const api = {
 
       if (params.inStockOnly && inv.quantity <= 0) continue;
 
+      // Filter by category if specified
+      if (params.category?.trim()) {
+        const catNorm = params.category.trim().toLowerCase();
+        const medCat = medicine.category.trim().toLowerCase();
+        if (medCat !== catNorm && !medCat.includes(catNorm)) {
+          continue;
+        }
+      }
+
       if (query) {
         const normQ = query.trim().toLowerCase();
         const normDisp = medicine.display_name.trim().toLowerCase();
@@ -1236,6 +1385,23 @@ export const api = {
         const normStrength = medicine.strength_form.trim().toLowerCase();
         const fullCombo = `${normGen} ${normStrength}`;
 
+        // Support disease keywords like BP, Sugar, Diabetes, Heart, Fever, Pain, etc.
+        const isBPMatch = (normQ === 'bp' || normQ === 'blood pressure') && 
+          (normCat.includes('blood pressure') || normCat.includes('bp') || normCat.includes('hypertension'));
+
+        const isSugarMatch = (normQ === 'sugar' || normQ === 'diabetes' || normQ === 'blood sugar') && 
+          (normCat.includes('diabetes') || normCat.includes('sugar'));
+
+        const isHeartMatch = (normQ === 'heart' || normQ === 'cardiac') && normCat.includes('heart');
+
+        const isFeverMatch = normQ === 'fever' && normCat.includes('fever');
+
+        const isPainMatch = (normQ === 'pain' || normQ === 'pain relief' || normQ === 'body pain') && normCat.includes('pain');
+
+        const isColdMatch = (normQ === 'cold' || normQ === 'cough') && normCat.includes('cold');
+
+        const isAsthmaMatch = (normQ === 'asthma' || normQ === 'copd') && normCat.includes('asthma');
+
         // FEATURE 3: Case-insensitive, spelling-exact matching ONLY (no fuzzy matching)
         const isExactMatch =
           normDisp === normQ ||
@@ -1243,6 +1409,13 @@ export const api = {
           normBrand === normQ ||
           normCat === normQ ||
           fullCombo === normQ ||
+          isBPMatch ||
+          isSugarMatch ||
+          isHeartMatch ||
+          isFeverMatch ||
+          isPainMatch ||
+          isColdMatch ||
+          isAsthmaMatch ||
           (medicine.variants && medicine.variants.some(v => 
             `${normGen} ${v.strength.toLowerCase()}` === normQ ||
             `${normGen} ${v.strength.toLowerCase()} ${v.dosage_form.toLowerCase()}` === normQ

@@ -9972,6 +9972,89 @@ export function getMedicinesByCategory(categoryName: string): Medicine[] {
 }
 
 /**
+ * Resolves a disease search term (e.g. "BP", "Sugar", "Diabetes", "Heart", "Fever", "Pain")
+ * or category name to matching therapeutic categories and their medicines.
+ */
+export function getMedicinesForDiseaseOrCategory(keywordOrCategory: string): {
+  categoryName: string;
+  medicines: Medicine[];
+} | null {
+  const norm = (keywordOrCategory || '').trim().toLowerCase();
+  if (!norm) return null;
+
+  // Direct category match
+  const exactCat = THERAPEUTIC_CATEGORIES.find(c => c.name.toLowerCase() === norm);
+  if (exactCat) {
+    return {
+      categoryName: exactCat.name,
+      medicines: getMedicinesByCategory(exactCat.name),
+    };
+  }
+
+  // Common aliases and disease terms
+  if (norm === 'bp' || norm === 'blood pressure' || norm === 'hypertension') {
+    const cat = THERAPEUTIC_CATEGORIES.find(c => c.name.includes('Blood Pressure'))!;
+    return { categoryName: cat.name, medicines: getMedicinesByCategory(cat.name) };
+  }
+  if (norm === 'sugar' || norm === 'diabetes' || norm === 'blood sugar') {
+    const cat = THERAPEUTIC_CATEGORIES.find(c => c.name.includes('Diabetes'))!;
+    return { categoryName: cat.name, medicines: getMedicinesByCategory(cat.name) };
+  }
+  if (norm === 'heart' || norm === 'cardiac' || norm === 'heart attack') {
+    const cat = THERAPEUTIC_CATEGORIES.find(c => c.name.includes('Heart Diseases')) || THERAPEUTIC_CATEGORIES[2];
+    return { categoryName: cat.name, medicines: getMedicinesByCategory(cat.name) };
+  }
+  if (norm === 'fever' || norm === 'temperature' || norm === 'pyrexia') {
+    const cat = THERAPEUTIC_CATEGORIES.find(c => c.name.includes('Fever'))!;
+    return { categoryName: cat.name, medicines: getMedicinesByCategory(cat.name) };
+  }
+  if (norm === 'pain' || norm === 'pain relief' || norm === 'body pain' || norm === 'headache') {
+    const cat = THERAPEUTIC_CATEGORIES.find(c => c.name.includes('Pain Relief'))!;
+    return { categoryName: cat.name, medicines: getMedicinesByCategory(cat.name) };
+  }
+  if (norm === 'cold' || norm === 'cough' || norm === 'cold and cough') {
+    const cat = THERAPEUTIC_CATEGORIES.find(c => c.name.includes('Cold and Cough'))!;
+    return { categoryName: cat.name, medicines: getMedicinesByCategory(cat.name) };
+  }
+  if (norm === 'asthma' || norm === 'copd' || norm === 'breathing') {
+    const cat = THERAPEUTIC_CATEGORIES.find(c => c.name.includes('Asthma and COPD'))!;
+    return { categoryName: cat.name, medicines: getMedicinesByCategory(cat.name) };
+  }
+  if (norm === 'thyroid') {
+    const cat = THERAPEUTIC_CATEGORIES.find(c => c.name.includes('Thyroid Disorders'))!;
+    return { categoryName: cat.name, medicines: getMedicinesByCategory(cat.name) };
+  }
+  if (norm === 'acidity' || norm === 'gastric' || norm === 'gas') {
+    const cat = THERAPEUTIC_CATEGORIES.find(c => c.name.includes('Gastric Problems and Acidity'))!;
+    return { categoryName: cat.name, medicines: getMedicinesByCategory(cat.name) };
+  }
+  if (norm === 'kidney') {
+    const cat = THERAPEUTIC_CATEGORIES.find(c => c.name.includes('Kidney Diseases'))!;
+    return { categoryName: cat.name, medicines: getMedicinesByCategory(cat.name) };
+  }
+  if (norm === 'liver') {
+    const cat = THERAPEUTIC_CATEGORIES.find(c => c.name.includes('Liver Diseases'))!;
+    return { categoryName: cat.name, medicines: getMedicinesByCategory(cat.name) };
+  }
+  if (norm === 'skin') {
+    const cat = THERAPEUTIC_CATEGORIES.find(c => c.name.includes('Skin Diseases'))!;
+    return { categoryName: cat.name, medicines: getMedicinesByCategory(cat.name) };
+  }
+  if (norm === 'eye') {
+    const cat = THERAPEUTIC_CATEGORIES.find(c => c.name.includes('Eye Diseases'))!;
+    return { categoryName: cat.name, medicines: getMedicinesByCategory(cat.name) };
+  }
+
+  // Partial match against category names
+  const partialCat = THERAPEUTIC_CATEGORIES.find(c => c.name.toLowerCase().includes(norm));
+  if (partialCat) {
+    return { categoryName: partialCat.name, medicines: getMedicinesByCategory(partialCat.name) };
+  }
+
+  return null;
+}
+
+/**
  * Compute counts of catalog medicines per category
  */
 export function getCategoryCounts(medicines: Medicine[] = PREDEFINED_MEDICINES): Record<string, number> {

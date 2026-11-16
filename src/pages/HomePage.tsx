@@ -6,6 +6,7 @@ import { THERAPEUTIC_CATEGORIES } from '../data/medicineCatalogData';
 
 export const HomePage: React.FC = () => {
   const [query, setQuery] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState('');
   const [location, setLocation] = useState('');
   const [isLocating, setIsLocating] = useState(false);
   const [locationError, setLocationError] = useState<string | null>(null);
@@ -14,7 +15,12 @@ export const HomePage: React.FC = () => {
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
     const params = new URLSearchParams();
-    if (query.trim()) params.append('q', query.trim());
+    if (selectedCategory.trim()) params.append('category', selectedCategory.trim());
+    if (query.trim()) {
+      params.append('q', query.trim());
+    } else if (selectedCategory.trim()) {
+      params.append('q', selectedCategory.trim());
+    }
     if (location.trim()) {
       params.append('loc', location.trim());
       const coords = getCoordinatesForLocation(location.trim(), location.trim());
@@ -76,18 +82,44 @@ export const HomePage: React.FC = () => {
           {/* Unified Search Card */}
           <div className="bg-white rounded-2xl p-3 sm:p-4 shadow-xl border border-emerald-700/40">
             <form onSubmit={handleSearch} className="flex flex-col md:flex-row gap-3">
+              {/* Disease Dropdown */}
+              <div className="w-full md:w-60 relative flex items-center">
+                <select
+                  value={selectedCategory}
+                  onChange={(e) => setSelectedCategory(e.target.value)}
+                  className="w-full px-3 py-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 text-xs sm:text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:bg-white transition-all cursor-pointer"
+                >
+                  <option value="">All Diseases & Categories</option>
+                  <option value="Blood Pressure (BP) and Hypertension">Blood Pressure (BP)</option>
+                  <option value="Diabetes and Blood Sugar">Diabetes / Sugar</option>
+                  <option value="Heart Diseases">Heart Diseases</option>
+                  <option value="Fever">Fever</option>
+                  <option value="Pain Relief">Pain Relief</option>
+                  <option value="Cold and Cough">Cold & Cough</option>
+                  <option value="Asthma and COPD">Asthma & COPD</option>
+                  <option value="Thyroid Disorders">Thyroid Disorders</option>
+                  <option value="Gastric Problems and Acidity">Gastric & Acidity</option>
+                  <option value="Bacterial Infections">Antibiotics & Infections</option>
+                  {THERAPEUTIC_CATEGORIES.filter(c => 
+                    !['Blood Pressure (BP) and Hypertension', 'Diabetes and Blood Sugar', 'Heart Diseases', 'Fever', 'Pain Relief', 'Cold and Cough', 'Asthma and COPD', 'Thyroid Disorders', 'Gastric Problems and Acidity', 'Bacterial Infections'].includes(c.name)
+                  ).map(c => (
+                    <option key={c.id} value={c.name}>{c.name}</option>
+                  ))}
+                </select>
+              </div>
+
               <div className="flex-1 relative flex items-center">
                 <Search className="w-5 h-5 text-slate-400 absolute left-3.5 pointer-events-none" />
                 <input
                   type="text"
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Search medicine (e.g. Paracetamol 500 mg)"
+                  placeholder="Search medicine (e.g. Amlodipine, Paracetamol) or disease (e.g. BP)"
                   className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-400 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:bg-white transition-all font-medium"
                 />
               </div>
 
-              <div className="w-full md:w-72 relative flex items-center">
+              <div className="w-full md:w-60 relative flex items-center">
                 <MapPin className="w-5 h-5 text-slate-400 absolute left-3.5 pointer-events-none" />
                 <input
                   type="text"
@@ -139,7 +171,7 @@ export const HomePage: React.FC = () => {
           {/* Popular Searches Pills */}
           <div className="mt-6 flex flex-wrap items-center gap-2">
             <span className="text-xs font-semibold text-emerald-200">Popular searches:</span>
-            {['Paracetamol 500 mg', 'Cetirizine', 'Amoxicillin', 'ORS', 'Pantoprazole', 'Metformin'].map((med) => (
+            {['BP', 'Sugar', 'Amlodipine', 'Telmisartan', 'Paracetamol 500 mg', 'Metformin'].map((med) => (
               <button
                 key={med}
                 onClick={() => handleQuickSearch(med)}
