@@ -185,17 +185,15 @@ class LocalDatabaseStore {
       this.save();
     }
 
-    // Ensure verified approved pharmacies exist
-    if (!this.pharmacies || this.pharmacies.length === 0) {
-      this.initDefaultPharmaciesAndInventory();
+    if (!this.pharmacies) {
+      this.pharmacies = [];
     }
 
-    // REQUIREMENT 4: Safe Database Cleanup
-    // Execute safe cleanup: Keeps all pharmacy names and accounts, genuine customer accounts and login credentials.
-    // Clears inventory (initially empty) and reservations (empty list).
-    if (typeof localStorage !== 'undefined' && localStorage.getItem('medistock_safe_cleanup_v3_applied') !== 'true') {
-      this.performSafeCleanup();
-      localStorage.setItem('medistock_safe_cleanup_v3_applied', 'true');
+    // COMPLETE DATABASE CLEANUP:
+    // When the application starts fresh or clean reset is triggered, ensure all operational and account data is 100% clean.
+    if (typeof localStorage !== 'undefined' && localStorage.getItem('medistock_clean_database_reset_v4') !== 'true') {
+      this.resetToCleanState();
+      localStorage.setItem('medistock_clean_database_reset_v4', 'true');
     }
   }
 
@@ -430,6 +428,7 @@ class LocalDatabaseStore {
       localStorage.removeItem('medistock_session_token');
       localStorage.removeItem('medistock_admin_setup_completed');
       localStorage.setItem('medistock_cleaned_safe', 'true');
+      localStorage.setItem('medistock_clean_database_reset_v4', 'true');
     }
     this.save();
     return { backedUp: true, backupKey };
