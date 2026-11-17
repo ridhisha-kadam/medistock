@@ -2408,11 +2408,40 @@ export const api = {
   }> {
     await this.checkAndExpireReservations();
 
-    const customers = localDB.profiles.filter(p => p.role === 'CUSTOMER');
-    const pending = localDB.pharmacies.filter(p => p.verification_status === 'PENDING_VERIFICATION');
-    const approved = localDB.pharmacies.filter(p => p.verification_status === 'APPROVED');
-    const rejected = localDB.pharmacies.filter(p => p.verification_status === 'REJECTED');
-    const disabled = localDB.pharmacies.filter(p => p.verification_status === 'DISABLED');
+    let allPharmacies = [...localDB.pharmacies];
+    let allProfiles = [...localDB.profiles];
+    let allReservations = [...localDB.reservations];
+
+    // Live Supabase Cloud Sync for Multi-Device synchronization
+    if (isLiveSupabaseConfigured()) {
+      try {
+        const { data: pData } = await supabase.from('pharmacies').select('*');
+        if (pData && pData.length > 0) {
+          allPharmacies = pData;
+          localDB.pharmacies = pData;
+        }
+
+        const { data: uData } = await supabase.from('profiles').select('*');
+        if (uData && uData.length > 0) {
+          allProfiles = uData;
+          localDB.profiles = uData;
+        }
+
+        const { data: rData } = await supabase.from('reservations').select('*');
+        if (rData) {
+          allReservations = rData;
+          localDB.reservations = rData;
+        }
+      } catch (e) {
+        console.warn('Supabase getAdminDashboardData sync fallback:', e);
+      }
+    }
+
+    const customers = allProfiles.filter(p => p.role === 'CUSTOMER');
+    const pending = allPharmacies.filter(p => p.verification_status === 'PENDING_VERIFICATION');
+    const approved = allPharmacies.filter(p => p.verification_status === 'APPROVED');
+    const rejected = allPharmacies.filter(p => p.verification_status === 'REJECTED');
+    const disabled = allPharmacies.filter(p => p.verification_status === 'DISABLED');
 
     const allMeds = localDB.medicines;
     let varCount = 0;
@@ -2422,22 +2451,22 @@ export const api = {
       varCount += (m.variants && m.variants.length > 0) ? m.variants.length : 1;
     });
 
-    const activeRes = localDB.reservations.filter(r => r.status === 'PENDING' || r.status === 'ACCEPTED' || r.status === 'READY_FOR_COLLECTION').length;
-    const collectedRes = localDB.reservations.filter(r => r.status === 'COMPLETED').length;
-    const expiredRes = localDB.reservations.filter(r => r.status === 'EXPIRED').length;
-    const cancelledRes = localDB.reservations.filter(r => r.status === 'CANCELLED').length;
+    const activeRes = allReservations.filter(r => r.status === 'PENDING' || r.status === 'ACCEPTED' || r.status === 'READY_FOR_COLLECTION').length;
+    const collectedRes = allReservations.filter(r => r.status === 'COMPLETED').length;
+    const expiredRes = allReservations.filter(r => r.status === 'EXPIRED').length;
+    const cancelledRes = allReservations.filter(r => r.status === 'CANCELLED').length;
 
-    const populatedReservations = localDB.reservations.map(r => ({
+    const populatedReservations = allReservations.map(r => ({
       ...r,
-      user: localDB.profiles.find(p => p.id === r.user_id),
-      pharmacy: localDB.pharmacies.find(p => p.id === r.pharmacy_id),
-      medicine: localDB.medicines.find(m => m.id === r.medicine_id),
+      user: allProfiles.find(p => p.id === r.user_id),
+      pharmacy: allPharmacies.find(p => p.id === r.pharmacy_id),
+      medicine: allMeds.find(m => m.id === r.medicine_id),
       bill: localDB.bills.find(b => b.reservation_id === r.id),
     })).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
     return {
       totalCustomers: customers.length,
-      totalPharmacies: localDB.pharmacies.length,
+      totalPharmacies: allPharmacies.length,
       pendingPharmacies: pending.length,
       approvedPharmacies: approved.length,
       rejectedPharmacies: rejected.length,
@@ -2446,12 +2475,12 @@ export const api = {
       totalVariants: varCount,
       totalCategories: Math.max(catSet.size, 40),
       totalInventoryListings: localDB.inventory.length,
-      totalReservations: localDB.reservations.length,
+      totalReservations: allReservations.length,
       activeReservations: activeRes,
       collectedReservations: collectedRes,
       expiredReservations: expiredRes,
       cancelledReservations: cancelledRes,
-      pharmacies: [...localDB.pharmacies],
+      pharmacies: [...allPharmacies],
       medicines: [...allMeds],
       reservations: populatedReservations,
       auditLogs: [...localDB.auditLogs].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).slice(0, 30),
@@ -2545,7 +2574,22 @@ export const api = {
     }
 
     const localIdx = idx !== -1 ? idx : localDB.pharmacies.findIndex(p => p.id === data.pharmacyId);
-    if (localIdx === -1) throw new Error('Pharmacy not found.');
+    if (localIdx === -1) {
+      if (targetPharm) {
+        const newEntry: Pharmacy = {
+          ...targetPharm,
+          verification_status: data.status,
+          rejection_reason: data.status === 'REJECTED' ? data.rejectionReason?.trim() : null,
+          verified_by: data.adminId || null,
+          verified_at: now,
+          updated_at: now,
+        };
+        localDB.pharmacies.push(newEntry);
+        localDB.save();
+        return { success: true, pharmacy: newEntry };
+      }
+      throw new Error('Pharmacy not found.');
+    }
 
     localDB.pharmacies[localIdx] = {
       ...localDB.pharmacies[localIdx],
