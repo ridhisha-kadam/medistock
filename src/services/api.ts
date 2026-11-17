@@ -15,7 +15,7 @@ import {
   StockStatus,
   ReservationStatus
 } from '../types/database';
-import { supabase, isLiveSupabaseConfigured, ADMIN_SETUP_SECRET } from './supabase';
+import { supabase, isLiveSupabaseConfigured, ADMIN_SETUP_SECRET, broadcastRealtimeEvent } from './supabase';
 import { 
   PREDEFINED_MEDICINES, 
   THERAPEUTIC_CATEGORIES, 
@@ -1074,6 +1074,7 @@ export const api = {
     }
     localDB.pharmacies = localDB.pharmacies.filter(p => p.id !== id);
     localDB.save();
+    broadcastRealtimeEvent('INVENTORY_CHANGED', { id });
     return { success: true };
   },
 
@@ -1536,13 +1537,18 @@ export const api = {
       }
     }
 
+    broadcastRealtimeEvent('INVENTORY_CHANGED', { pharmacyId: data.pharmacyId, medicineId: data.medicineId });
     return savedItem;
   },
 
   /**
    * API 16: /api/inventory/{id} (PUT)
    */
-  async updateInventoryItem(id: string, updates: Partial<InventoryItem>): Promise<InventoryItem> {
+  async updateInventoryItem(id: string, updates: Partial<InventoryItem>, actorPharmacyId?: string): Promise<InventoryItem> {
+    const existingListing = localDB.inventory.find(i => i.id === id);
+    if (actorPharmacyId && existingListing && existingListing.pharmacy_id !== actorPharmacyId) {
+      throw new Error('Access denied: You cannot modify stock belonging to another pharmacy.');
+    }
     const now = new Date().toISOString();
     let newStatus: StockStatus | undefined = updates.status;
 
@@ -1579,13 +1585,18 @@ export const api = {
       last_updated: now,
     };
     localDB.save();
+    broadcastRealtimeEvent('INVENTORY_CHANGED', { id, ...updates });
     return localDB.inventory[idx];
   },
 
   /**
    * API 17: /api/inventory/{id} (DELETE)
    */
-  async deleteInventoryItem(id: string): Promise<{ success: boolean }> {
+  async deleteInventoryItem(id: string, actorPharmacyId?: string): Promise<{ success: boolean }> {
+    const existingListing = localDB.inventory.find(i => i.id === id);
+    if (actorPharmacyId && existingListing && existingListing.pharmacy_id !== actorPharmacyId) {
+      throw new Error('Access denied: You cannot delete stock belonging to another pharmacy.');
+    }
     if (isLiveSupabaseConfigured()) {
       try {
         await supabase.from('inventory').delete().eq('id', id);
@@ -2746,6 +2757,7 @@ export const api = {
     });
 
     localDB.save();
+    broadcastRealtimeEvent('PHARMACY_STATUS_CHANGED', { pharmacyId: data.pharmacyId, status: data.status });
     return { success: true, pharmacy: localDB.pharmacies[localIdx] };
   },
 

@@ -108,6 +108,15 @@ export const SearchResultsPage: React.FC = () => {
   // Load results whenever search params, filters, or user location change
   useEffect(() => {
     loadResults();
+
+    // Supabase Real-Time Stock Updates across devices
+    const handleRealtimeStockUpdate = () => {
+      loadResults();
+    };
+    window.addEventListener('medistock_stock_updated', handleRealtimeStockUpdate);
+    return () => {
+      window.removeEventListener('medistock_stock_updated', handleRealtimeStockUpdate);
+    };
   }, [searchParams, inStockOnly, sortBy, userLat, userLng]);
 
   const loadResults = async () => {

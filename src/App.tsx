@@ -4,6 +4,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { Navbar } from './components/Navbar';
 import { Footer } from './components/Footer';
 import { api } from './services/api';
+import { initSupabaseRealtime } from './services/supabase';
 
 // Pages
 import { HomePage } from './pages/HomePage';
@@ -45,6 +46,7 @@ const ProtectedCustomerRoute: React.FC<{ children: React.ReactNode }> = ({ child
 // Continuous Multi-Device Real-Time Cloud Database Synchronizer
 const CloudDatabaseSyncWatcher: React.FC = () => {
   useEffect(() => {
+    initSupabaseRealtime(async () => { await api.syncCloudDatabase(); });
     api.syncCloudDatabase();
     const interval = setInterval(() => {
       api.syncCloudDatabase();

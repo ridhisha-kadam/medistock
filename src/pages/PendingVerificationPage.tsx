@@ -14,6 +14,14 @@ export const PendingVerificationPage: React.FC = () => {
 
   useEffect(() => {
     checkStatus();
+
+    const handleUpdate = () => checkStatus();
+    window.addEventListener('medistock_alert_updated', handleUpdate);
+    window.addEventListener('medistock_stock_updated', handleUpdate);
+    return () => {
+      window.removeEventListener('medistock_alert_updated', handleUpdate);
+      window.removeEventListener('medistock_stock_updated', handleUpdate);
+    };
   }, [user]);
 
   const checkStatus = async () => {

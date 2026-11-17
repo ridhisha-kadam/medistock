@@ -110,9 +110,11 @@ export const PharmacyDashboardPage: React.FC = () => {
 
     const handleUpdate = () => loadAllPharmacyData();
     window.addEventListener('medistock_alert_updated', handleUpdate);
+    window.addEventListener('medistock_stock_updated', handleUpdate);
 
     return () => {
       window.removeEventListener('medistock_alert_updated', handleUpdate);
+      window.removeEventListener('medistock_stock_updated', handleUpdate);
     };
   }, [user]);
 
@@ -333,7 +335,7 @@ export const PharmacyDashboardPage: React.FC = () => {
   const handleDeleteClick = async (listingId: string) => {
     if (!confirm('Are you sure you want to remove this medicine listing from your stock?')) return;
     try {
-      await api.deleteInventoryItem(listingId);
+      await api.deleteInventoryItem(listingId, currentPharm?.id);
       if (currentPharm) {
         const inv = await api.getInventory({ pharmacyId: currentPharm.id });
         setInventory(inv);
