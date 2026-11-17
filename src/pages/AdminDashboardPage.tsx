@@ -28,7 +28,9 @@ import {
   Trash2,
   Layers,
   Pill,
-  Check
+  Check,
+  Database,
+  Download
 } from 'lucide-react';
 
 export const AdminDashboardPage: React.FC = () => {
@@ -96,6 +98,31 @@ export const AdminDashboardPage: React.FC = () => {
     referenceSource: 'NLEM 2022 / IP',
     isPrescriptionRequired: true,
   });
+
+  // Safe Cleanup & Backup State (Requirement 4)
+  const [cleanupMessage, setCleanupMessage] = useState<string | null>(null);
+
+  const handleBackupDatabase = () => {
+    const jsonStr = api.backupDatabase();
+    const blob = new Blob([jsonStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `medistock_backup_${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExecuteSafeCleanup = async () => {
+    if (!confirm('Are you sure you want to perform safe database cleanup?\n\n• ALL pharmacy names and accounts will be KEPT.\n• ALL customer accounts and passwords will be KEPT.\n• ALL master catalog medicines will be KEPT.\n• Pharmacy stock will be cleared to empty.\n• Reservations will be cleared.\n\nA backup will be created automatically first.')) return;
+    try {
+      const res = api.performSafeDatabaseCleanup();
+      setCleanupMessage(`Safe cleanup executed successfully! Automatic backup saved under "${res.backupKey}". Pharmacy stock and reservations are now clean.`);
+      await loadAdminData();
+    } catch (e: any) {
+      alert(e.message || 'Cleanup error.');
+    }
+  };
 
   // Edit Medicine Form
   const [editMedForm, setEditMedForm] = useState({
@@ -1118,6 +1145,68 @@ export const AdminDashboardPage: React.FC = () => {
                 <div className="p-3 bg-rose-50 rounded-xl border border-rose-200">
                   <span className="font-bold text-rose-900 block mb-1">Expired (48h limit)</span>
                   <span className="text-xl font-black text-rose-700">{stats.expiredReservations}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Database Maintenance & Safe Cleanup Card (Requirement 4) */}
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 space-y-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-800 flex items-center justify-center font-bold">
+                  <Database className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">Database Safety & Maintenance</h3>
+                  <p className="text-xs text-slate-500">
+                    Safe backup and cleanup utility per MediStock database safety specifications.
+                  </p>
+                </div>
+              </div>
+
+              {cleanupMessage && (
+                <div className="p-3.5 bg-emerald-50 border border-emerald-300 rounded-xl text-xs font-semibold text-emerald-950 flex items-center gap-2">
+                  <Check className="w-4 h-4 text-emerald-700 shrink-0" />
+                  <span>{cleanupMessage}</span>
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200">
+                  <span className="font-extrabold text-emerald-800 block mb-1">✓ Pharmacy Accounts</span>
+                  <p className="text-slate-600">All registered pharmacy names and credentials remain 100% intact.</p>
+                </div>
+                <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200">
+                  <span className="font-extrabold text-emerald-800 block mb-1">✓ Customer Accounts</span>
+                  <p className="text-slate-600">All registered customers, phone numbers, and logins are preserved.</p>
+                </div>
+                <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200">
+                  <span className="font-extrabold text-emerald-800 block mb-1">✓ Medicine Catalog</span>
+                  <p className="text-slate-600">All 245 predefined generic medicines and categories are preserved.</p>
+                </div>
+              </div>
+
+              <div className="pt-2 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100">
+                <p className="text-[11px] text-slate-500">
+                  Safe cleanup empties pharmacy stock and reservations only (no DROP TABLE or database reset).
+                </p>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleBackupDatabase}
+                    className="flex items-center gap-1.5 px-3.5 py-2 bg-white hover:bg-slate-50 text-slate-700 font-bold text-xs rounded-xl border border-slate-300 shadow-xs transition-colors"
+                  >
+                    <Download className="w-3.5 h-3.5 text-slate-600" />
+                    Download JSON Backup
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleExecuteSafeCleanup}
+                    className="flex items-center gap-1.5 px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs rounded-xl shadow-xs transition-colors"
+                  >
+                    <Database className="w-3.5 h-3.5" />
+                    Execute Safe Cleanup
+                  </button>
                 </div>
               </div>
             </div>
