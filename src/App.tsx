@@ -41,6 +41,19 @@ const ProtectedCustomerRoute: React.FC<{ children: React.ReactNode }> = ({ child
 };
 
 // Automatic 48-Hour Reservation Expiry Watcher
+
+// Continuous Multi-Device Real-Time Cloud Database Synchronizer
+const CloudDatabaseSyncWatcher: React.FC = () => {
+  useEffect(() => {
+    api.syncCloudDatabase();
+    const interval = setInterval(() => {
+      api.syncCloudDatabase();
+    }, 12000); // Poll and synchronize every 12 seconds
+    return () => clearInterval(interval);
+  }, []);
+  return null;
+};
+
 const AutoExpiryWatcher: React.FC = () => {
   useEffect(() => {
     // Run immediately on mount
@@ -64,7 +77,8 @@ const AutoExpiryWatcher: React.FC = () => {
 export const App: React.FC = () => {
   return (
     <AuthProvider>
-      <AutoExpiryWatcher />
+      <CloudDatabaseSyncWatcher />
+        <AutoExpiryWatcher />
       <BrowserRouter>
         <div className="flex flex-col min-h-screen bg-slate-50 font-sans selection:bg-emerald-200 selection:text-emerald-900">
           <Navbar />

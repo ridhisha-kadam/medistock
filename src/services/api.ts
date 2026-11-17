@@ -31,6 +31,29 @@ export const generateId = () => {
   return 'id-' + Math.random().toString(36).substring(2, 11) + '-' + Date.now();
 };
 
+export function toCloudMedicineId(id: string): string {
+  if (!id) return id;
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+    return id;
+  }
+  const match = id.match(/med-cat-(\d+)/i);
+  if (match) {
+    const num = parseInt(match[1], 10);
+    return `00000000-0000-4000-8000-${String(num).padStart(12, '0')}`;
+  }
+  return id;
+}
+
+export function fromCloudMedicineId(id: string): string {
+  if (!id) return id;
+  const match = id.match(/^00000000-0000-4000-8000-(\d{12})$/i);
+  if (match) {
+    const num = parseInt(match[1], 10);
+    return `med-cat-${String(num).padStart(4, '0')}`;
+  }
+  return id;
+}
+
 // ==============================================================================
 // VALIDATION UTILITIES (Mandatory Form Validation per Section 5)
 // ==============================================================================
@@ -557,22 +580,23 @@ export const api = {
           updated_at: newProfile.updated_at,
         }]);
 
-        if (insertErr) {
-          console.warn('Supabase insert profile fallback to localDB:', insertErr.message);
-          localDB.profiles.push(newProfile);
-          localDB.passwords[cleanEmail] = data.password;
-          localDB.save();
-        } else {
-          // Log audit
-          await supabase.from('audit_logs').insert([{
-            id: generateId(),
-            actor_user_id: newProfile.id,
-            actor_email: newProfile.email,
-            action: 'USER_REGISTERED',
-            entity_type: 'PROFILES',
-            entity_id: newProfile.id,
-            details: { role: newProfile.role, name: newProfile.full_name },
-          }]);
+        // Save to localDB on this device immediately
+        localDB.profiles.push(newProfile);
+        localDB.passwords[cleanEmail] = data.password;
+        localDB.save();
+
+        if (!insertErr) {
+          try {
+            await supabase.from('audit_logs').insert([{
+              id: generateId(),
+              actor_user_id: newProfile.id,
+              actor_email: newProfile.email,
+              action: 'USER_REGISTERED',
+              entity_type: 'PROFILES',
+              entity_id: newProfile.id,
+              details: { role: newProfile.role, name: newProfile.full_name },
+            }]);
+          } catch (_) {}
         }
       } catch (err: any) {
         if (err.message?.includes('already exists') || err.message?.includes('already been registered')) {
@@ -616,6 +640,16 @@ export const api = {
           if (profile.password && profile.password !== password) {
             throw new Error('Invalid email or password.');
           }
+          // Synchronize profile and credentials into localDB on this device
+          const pIdx = localDB.profiles.findIndex(p => p.id === profile.id || p.email === cleanEmail);
+          if (pIdx !== -1) {
+            localDB.profiles[pIdx] = profile;
+          } else {
+            localDB.profiles.push(profile);
+          }
+          localDB.passwords[cleanEmail] = password;
+          localDB.save();
+
           const token = 'jwt-token-' + profile.id + '-' + Date.now();
           return { success: true, user: profile, token };
         }
@@ -789,6 +823,18 @@ export const api = {
       } catch (e) {
         console.warn('Supabase getPharmacies fallback:', e);
       }
+    }
+
+    if (list.length > 0) {
+      for (const p of list) {
+        const idx = localDB.pharmacies.findIndex(lp => lp.id === p.id);
+        if (idx !== -1) {
+          localDB.pharmacies[idx] = p;
+        } else {
+          localDB.pharmacies.push(p);
+        }
+      }
+      localDB.save();
     }
 
     const localList = [...localDB.pharmacies];
@@ -1335,13 +1381,32 @@ export const api = {
 
     if (isLiveSupabaseConfigured()) {
       try {
-        let query = supabase.from('inventory').select('*, medicine:medicines(*), pharmacy:pharmacies(*)');
+        let query = supabase.from('inventory').select('*');
         if (filter?.pharmacyId) query = query.eq('pharmacy_id', filter.pharmacyId);
-        if (filter?.medicineId) query = query.eq('medicine_id', filter.medicineId);
+        if (filter?.medicineId) query = query.eq('medicine_id', toCloudMedicineId(filter.medicineId));
 
         const { data, error } = await query;
         if (data && !error && data.length > 0) {
-          list = data;
+          list = data.map((d: any) => {
+            const mId = fromCloudMedicineId(d.medicine_id);
+            return {
+              ...d,
+              medicine_id: mId,
+              medicine: localDB.medicines.find(m => m.id === mId) || PREDEFINED_MEDICINES.find(m => m.id === mId),
+              pharmacy: localDB.pharmacies.find(p => p.id === d.pharmacy_id),
+            };
+          });
+
+          // Synchronize cloud inventory into localDB so other functions on this device have access
+          for (const item of list) {
+            const idx = localDB.inventory.findIndex(i => i.id === item.id || (i.pharmacy_id === item.pharmacy_id && i.medicine_id === item.medicine_id));
+            if (idx !== -1) {
+              localDB.inventory[idx] = item;
+            } else {
+              localDB.inventory.push(item);
+            }
+          }
+          localDB.save();
         }
       } catch (e) {
         console.warn('Supabase getInventory fallback:', e);
@@ -1434,11 +1499,12 @@ export const api = {
 
     if (isLiveSupabaseConfigured()) {
       try {
+        const cloudMedId = toCloudMedicineId(data.medicineId);
         const { data: existing } = await supabase
           .from('inventory')
           .select('id')
           .eq('pharmacy_id', data.pharmacyId)
-          .eq('medicine_id', data.medicineId)
+          .eq('medicine_id', cloudMedId)
           .maybeSingle();
 
         if (existing) {
@@ -1451,7 +1517,19 @@ export const api = {
             last_updated: now,
           }).eq('id', existing.id);
         } else {
-          await supabase.from('inventory').insert([newItem]);
+          await supabase.from('inventory').insert([{
+            id: newItem.id,
+            pharmacy_id: newItem.pharmacy_id,
+            medicine_id: cloudMedId,
+            quantity: newItem.quantity,
+            price: newItem.price,
+            expiry_date: newItem.expiry_date,
+            batch_number: newItem.batch_number,
+            status: newItem.status,
+            last_updated: newItem.last_updated,
+            updated_by: newItem.updated_by,
+            created_at: newItem.created_at,
+          }]);
         }
       } catch (e) {
         console.warn('Supabase addInventoryItem sync fallback:', e);
@@ -1905,7 +1983,7 @@ export const api = {
           id: newRes.id,
           user_id: newRes.user_id,
           pharmacy_id: newRes.pharmacy_id,
-          medicine_id: newRes.medicine_id,
+          medicine_id: toCloudMedicineId(newRes.medicine_id),
           quantity: newRes.quantity,
           unit_price: newRes.unit_price,
           total_price: newRes.total_price,
@@ -2749,12 +2827,14 @@ export const api = {
               || (r.customer_name ? { id: r.user_id, full_name: r.customer_name, mobile_number: r.customer_phone || '', email: r.customer_email || '' } as Profile : undefined);
             const p = localDB.pharmacies.find(ph => ph.id === r.pharmacy_id)
               || (r.pharmacy_name ? { id: r.pharmacy_id, name: r.pharmacy_name, address: r.pharmacy_address || '', mobile_number: r.pharmacy_phone || '' } as Pharmacy : undefined);
-            const m = localDB.medicines.find(med => med.id === r.medicine_id)
-              || PREDEFINED_MEDICINES.find(med => med.id === r.medicine_id)
-              || (r.medicine_name ? { id: r.medicine_id, display_name: r.medicine_name, category: r.medicine_category || 'General', strength_form: r.medicine_strength || '' } as Medicine : undefined);
+            const medId = fromCloudMedicineId(r.medicine_id);
+            const m = localDB.medicines.find(med => med.id === medId)
+              || PREDEFINED_MEDICINES.find(med => med.id === medId)
+              || (r.medicine_name ? { id: medId, display_name: r.medicine_name, category: r.medicine_category || 'General', strength_form: r.medicine_strength || '' } as Medicine : undefined);
 
             return {
               ...r,
+              medicine_id: medId,
               user: u,
               pharmacy: p,
               medicine: m,
@@ -2818,12 +2898,14 @@ export const api = {
               || (r.customer_name ? { id: r.user_id, full_name: r.customer_name, mobile_number: r.customer_phone || '', email: r.customer_email || '' } as Profile : undefined);
             const p = localDB.pharmacies.find(ph => ph.id === r.pharmacy_id)
               || (r.pharmacy_name ? { id: r.pharmacy_id, name: r.pharmacy_name, address: r.pharmacy_address || '', mobile_number: r.pharmacy_phone || '' } as Pharmacy : undefined);
-            const m = localDB.medicines.find(med => med.id === r.medicine_id)
-              || PREDEFINED_MEDICINES.find(med => med.id === r.medicine_id)
-              || (r.medicine_name ? { id: r.medicine_id, display_name: r.medicine_name, category: r.medicine_category || 'General', strength_form: r.medicine_strength || '' } as Medicine : undefined);
+            const medId = fromCloudMedicineId(r.medicine_id);
+            const m = localDB.medicines.find(med => med.id === medId)
+              || PREDEFINED_MEDICINES.find(med => med.id === medId)
+              || (r.medicine_name ? { id: medId, display_name: r.medicine_name, category: r.medicine_category || 'General', strength_form: r.medicine_strength || '' } as Medicine : undefined);
 
             return {
               ...r,
+              medicine_id: medId,
               user: u,
               pharmacy: p,
               medicine: m,
@@ -2993,6 +3075,54 @@ export const api = {
     return merged.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   },
 
+  
+  /**
+   * Continuous Multi-Device Real-Time Cloud Synchronization
+   * Automatically synchronizes profiles, pharmacies, inventory listings, and reservations from Supabase.
+   */
+  async syncCloudDatabase(): Promise<void> {
+    if (!isLiveSupabaseConfigured()) return;
+    try {
+      const [pRes, uRes, iRes, rRes] = await Promise.all([
+        supabase.from('pharmacies').select('*'),
+        supabase.from('profiles').select('*'),
+        supabase.from('inventory').select('*'),
+        supabase.from('reservations').select('*')
+      ]);
+
+      if (pRes.data && pRes.data.length > 0) {
+        localDB.pharmacies = pRes.data;
+      }
+      if (uRes.data && uRes.data.length > 0) {
+        localDB.profiles = uRes.data;
+        for (const u of uRes.data) {
+          if (u.password && u.email) {
+            localDB.passwords[u.email.toLowerCase()] = u.password;
+          }
+        }
+      }
+      if (iRes.data && iRes.data.length > 0) {
+        localDB.inventory = iRes.data.map((d: any) => {
+          const mId = fromCloudMedicineId(d.medicine_id);
+          return {
+            ...d,
+            medicine_id: mId,
+            medicine: localDB.medicines.find(m => m.id === mId) || PREDEFINED_MEDICINES.find(m => m.id === mId),
+            pharmacy: localDB.pharmacies.find(p => p.id === d.pharmacy_id),
+          };
+        });
+      }
+      if (rRes.data && rRes.data.length > 0) {
+        localDB.reservations = rRes.data.map((r: any) => ({
+          ...r,
+          medicine_id: fromCloudMedicineId(r.medicine_id),
+        }));
+      }
+      localDB.save();
+    } catch (err) {
+      console.warn('MediStock background cloud sync fallback:', err);
+    }
+  },
   performSafeDatabaseCleanup(): { backedUp: boolean; backupKey: string } {
     return localDB.performSafeCleanup();
   },
