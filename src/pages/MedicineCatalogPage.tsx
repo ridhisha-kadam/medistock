@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { api } from '../services/api';
-import { Medicine, MedicineVariant, TherapeuticCategory, SearchResultItem } from '../types/database';
+import { Medicine, MedicineVariant, TherapeuticCategory, SearchResultItem, Reservation } from '../types/database';
 import { useAuth } from '../context/AuthContext';
 import { Modal } from '../components/Modal';
+import { ReservationDetailsModal } from '../components/ReservationDetailsModal';
 import { 
   Search, 
   ArrowLeft, 
@@ -48,6 +49,8 @@ export const MedicineCatalogPage: React.FC = () => {
   const [reserveSuccess, setReserveSuccess] = useState<string | null>(null);
   const [reserveError, setReserveError] = useState<string | null>(null);
   const [isReserving, setIsReserving] = useState<boolean>(false);
+  const [confirmedReservationObject, setConfirmedReservationObject] = useState<Reservation | null>(null);
+  const [selectedResForDetails, setSelectedResForDetails] = useState<Reservation | null>(null);
   const [reservationConfirmedData, setReservationConfirmedData] = useState<{
     reservationId: string;
     customerPhone: string;
@@ -201,6 +204,7 @@ export const MedicineCatalogPage: React.FC = () => {
 
       const customerPhone = user.mobile_number || 'Registered Mobile';
 
+      setConfirmedReservationObject(res.reservation);
       setReservationConfirmedData({
         reservationId: res.reservation.id,
         customerPhone: customerPhone,
@@ -824,7 +828,16 @@ export const MedicineCatalogPage: React.FC = () => {
                   ⏰ <strong>Pickup & Auto-Restoration Policy:</strong> Please collect your medicine before <strong>{reservationConfirmedData.collectionDeadline}</strong>. A reminder notification will be sent 30 minutes before this deadline. If not collected by the end date, reserved stock will automatically return to the pharmacy inventory.
                 </div>
 
-                <div className="flex justify-end gap-2 pt-1">
+                <div className="flex flex-wrap items-center justify-end gap-2 pt-1">
+                  {confirmedReservationObject && (
+                    <button
+                      type="button"
+                      onClick={() => setSelectedResForDetails(confirmedReservationObject)}
+                      className="px-4 py-2 bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 rounded-xl text-xs font-bold transition-all shadow-xs"
+                    >
+                      View Reservation Details
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => navigate('/customer/reservations')}
@@ -998,6 +1011,13 @@ export const MedicineCatalogPage: React.FC = () => {
         </Modal>
       )}
 
+      {/* Reservation Details Modal (Requirement 3) */}
+      <ReservationDetailsModal
+        isOpen={Boolean(selectedResForDetails)}
+        onClose={() => setSelectedResForDetails(null)}
+        reservation={selectedResForDetails}
+        currentUser={user}
+      />
     </div>
   );
 };

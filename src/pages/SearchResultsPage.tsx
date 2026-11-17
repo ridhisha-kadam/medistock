@@ -18,12 +18,13 @@ import {
   ChevronRight
 } from 'lucide-react';
 import { api, isListingStale, getCoordinatesForLocation } from '../services/api';
-import { SearchResultItem, Medicine } from '../types/database';
+import { SearchResultItem, Medicine, Reservation } from '../types/database';
 import { THERAPEUTIC_CATEGORIES, getMedicinesForDiseaseOrCategory } from '../data/medicineCatalogData';
 import { StatusBadge } from '../components/StatusBadge';
 import { MapWidget, MapMarkerItem } from '../components/MapWidget';
 import { Modal } from '../components/Modal';
 import { CallPharmacyModal } from '../components/CallPharmacyModal';
+import { ReservationDetailsModal } from '../components/ReservationDetailsModal';
 import { useAuth } from '../context/AuthContext';
 
 export const SearchResultsPage: React.FC = () => {
@@ -52,6 +53,8 @@ export const SearchResultsPage: React.FC = () => {
   const [reserveQuantity, setReserveQuantity] = useState<number>(1);
   const [reserveNotes, setReserveNotes] = useState<string>('');
   const [isSubmittingReservation, setIsSubmittingReservation] = useState<boolean>(false);
+  const [confirmedReservationObject, setConfirmedReservationObject] = useState<Reservation | null>(null);
+  const [selectedResForDetails, setSelectedResForDetails] = useState<Reservation | null>(null);
   const [reservationSuccessMessage, setReservationSuccessMessage] = useState<string | null>(null);
   const [reservationError, setReservationError] = useState<string | null>(null);
   const [reservationConfirmedData, setReservationConfirmedData] = useState<{
@@ -247,6 +250,7 @@ export const SearchResultsPage: React.FC = () => {
 
       const customerPhone = user.mobile_number || 'Registered Mobile';
 
+      setConfirmedReservationObject(res.reservation);
       setReservationConfirmedData({
         reservationId: res.reservation.id,
         customerPhone: customerPhone,
@@ -726,7 +730,16 @@ export const SearchResultsPage: React.FC = () => {
                   ⏰ <strong>Pickup & Auto-Restoration Policy:</strong> Please collect your medicine before <strong>{reservationConfirmedData.collectionDeadline}</strong>. A reminder notification will be sent 30 minutes before this deadline. If not collected by the end date, reserved stock will automatically return to the pharmacy inventory.
                 </div>
 
-                <div className="pt-2 flex justify-center gap-3">
+                <div className="pt-2 flex flex-wrap justify-center gap-3">
+                  {confirmedReservationObject && (
+                    <button
+                      type="button"
+                      onClick={() => setSelectedResForDetails(confirmedReservationObject)}
+                      className="px-4 py-2 bg-white border border-slate-300 text-slate-800 rounded-xl text-xs font-bold hover:bg-slate-50 transition-colors shadow-xs"
+                    >
+                      View Reservation Details
+                    </button>
+                  )}
                   <button
                     onClick={() => navigate('/customer/reservations')}
                     className="px-4 py-2 bg-emerald-700 text-white rounded-xl text-xs font-bold hover:bg-emerald-800 transition-colors shadow-xs"
@@ -858,6 +871,14 @@ export const SearchResultsPage: React.FC = () => {
         onClose={() => setCallModalData(null)}
         pharmacyName={callModalData?.name || ''}
         phoneNumber={callModalData?.phone || ''}
+      />
+
+      {/* Reservation Details Modal (Requirement 3) */}
+      <ReservationDetailsModal
+        isOpen={Boolean(selectedResForDetails)}
+        onClose={() => setSelectedResForDetails(null)}
+        reservation={selectedResForDetails}
+        currentUser={user}
       />
     </div>
   );

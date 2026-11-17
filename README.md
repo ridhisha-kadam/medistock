@@ -1,4 +1,4 @@
-# MediStock – A Local Medicine Availability Finder
+# MediStock – Pharmacy Stock & Medicine Availability Web Application
 
 **Third-Year Engineering Minor Project - I (Course Code: 22UISL505)**  
 Department of Information Science and Engineering  
@@ -6,190 +6,214 @@ Department of Information Science and Engineering
 
 ---
 
-## 🌟 Executive Overview & Purpose
+## 🌟 Overview & System Highlights
 
-**MediStock** is a production-grade, full-stack web application designed to solve the common real-world problem of finding prescription and essential medicines across local medical stores. Instead of travelling from pharmacy to pharmacy or making endless phone calls, patients can search for medicines by generic name, brand name, composition, or location (PIN code / GPS coordinates), check reported stock levels, compare prices, inspect pharmacy operating hours, and place atomic counter-pickup reservations.
+**MediStock** is a production-grade full-stack web application designed to eliminate the frustration of searching for essential and life-saving medicines across local pharmacies. Instead of physically visiting multiple stores or making multiple phone calls, customers can search medicines dynamically by therapeutic disease category (e.g. Blood Pressure, Diabetes, Heart, Fever, Gastric, Pain Relief, Antibiotics, etc.), generic chemical name, active composition, or brand name, compare verified prices and counter stock, and place counter-pickup reservations with an automated 48-hour pickup window and real-time alerts.
 
-The application strictly implements and synthesizes the four official MediStock reference documents:
-1. **MediStock Design Phase Report** (Figures 9.1 through 9.7 user interfaces, 3-tier architecture, client-server model, UML diagrams, ER model, DFD Level 0 & 1).
-2. **MediStock Software Requirements Specification (SRS)** (Functional requirements FR-01 through FR-16, Performance requirements PR-01 through PR-06, data integrity rules, stale data indicators).
-3. **MediStock API Catalogue** (All 32 specified API endpoints across 8 functional modules).
-4. **MediStock Project Synopsis** (Core objectives 1 to 8, literature survey, and academic problem statement).
+### 🔑 Key Functional Enhancements:
 
----
+1. **Pharmacy Dashboard – Dynamic Stock Addition**:
+   - Dynamic therapeutic disease category dropdown populated directly from the 40 master catalog categories.
+   - Dynamic category-based medicine suggestions (e.g. selecting Blood Pressure displays Amlodipine, Telmisartan, Losartan, Atenolol, Metoprolol, Ramipril, etc.).
+   - 1-click catalog chips to pre-fill medicine name, generic name, active composition, and strength/formulation.
+   - Duplicate prevention check before catalog entry creation.
+   - Batch number and expiry date tracking.
 
-## 🚀 Key Features & Strict Compliance
+2. **Customer Medicine Catalog – Comprehensive Disease Category Search**:
+   - Filter medicines dynamically across all 40 therapeutic categories with zero missing items.
+   - Live search by Medicine Name, Generic Name, Active Composition, and Strength.
+   - Direct counter stock availability lookups showing all verified pharmacies that stock the medicine.
 
-### 1. Strict Zero-Dummy-Data Compliance
-* Starts with an initially **completely empty database**.
-* **Zero prefilled fake data, zero dummy pharmacies, zero dummy customers, zero dummy medicines.**
-* All dashboard counts, inventory listings, audit logs, and search results originate strictly from actual user submissions.
-* Professional empty-state handling:
-  * *"No pharmacies registered yet."*
-  * *"No stock listed yet. Add your first medicine with the form below."*
-  * *"No pharmacy reports '&lt;medicine&gt;'."*
-  * *"No active reservations found."*
-  * *"No bills generated yet."*
+3. **Customer Orders in Pharmacy Dashboard**:
+   - Strict per-pharmacy isolation: each pharmacy sees strictly only reservations placed for their own store.
+   - Displays actual customer registered name (never `undefined`), phone number, medicine name, category, strength/composition, ordered quantity, order date, status badge, and the exact pickup collection deadline.
+   - Complete persistence in database and local storage.
 
-### 2. Form Validation (All User-Entered Fields Mandatory)
-* **Indian Mobile Numbers**: Strictly validated 10-digit Indian numbers starting with 6, 7, 8, or 9.
-* **Indian PIN Codes**: Strictly validated 6-digit postal codes (e.g. 580001, 580002).
-* **Emails & Passwords**: Standard RFC email format and minimum 8-character passwords with alphanumeric requirements.
-* **Prices & Quantities**: Validated positive whole numbers for stock and non-negative decimals for prices.
+4. **Customer Reservation Details Popup Modal**:
+   - Dedicated "View Reservation Details" button on both customer reservations page, catalog confirmation, and pharmacy dashboard.
+   - **Section A (Customer Details)**: Customer Full Name, Registered Mobile Number, Email, and City.
+   - **Section B (Pharmacy Details)**: Pharmacy Name, Complete Physical Address, Contact Number, and Drug Licence Number.
+   - **Reservation Information**: Reserved Medicine Name, Category, Strength/Formulation, Active Composition, Quantity, Unit/Total Price, Reservation ID, Order Date, Status, and Last Date/Time to Collect.
 
-### 3. Role-Based Access Control (RBAC)
-* **Customer (`CUSTOMER`)**:
-  * Public medicine search by name, brand, generic composition, city, or PIN code.
-  * Browser geolocation support with Haversine distance calculation in kilometers.
-  * Filter by "In stock only" and sort by Most stock, Lowest price, or Nearest distance.
-  * Comparison view across participating pharmacies.
-  * Counter-pickup medicine reservations.
-  * Reservation status tracking and official pickup invoice/receipt downloads.
-* **Pharmacy Owner (`PHARMACY`)**:
-  * Dedicated self-registration with drug licence number, address, contact person, and operating hours.
-  * Initial safety state: `PENDING_VERIFICATION` (cannot publish stock or appear in customer searches until approved).
-  * 6 Real-time stat cards (Medicines listed, In stock, Low stock, Out of stock, Pending reservations, Completed reservations).
-  * Inventory management table (Add, Edit, Delete, Update quantity & price).
-  * Shared medicine catalogue integration (add new medicines with composition).
-  * Reservation workflow management (Accept, Reject, Mark Ready for Pickup, Mark Completed).
-  * Automated official bill generation upon pickup completion.
-  * Stock alerts when quantities drop below 10 units.
-* **System Administrator (`ADMIN`)**:
-  * One-time atomic registration protected by `ADMIN_SETUP_SECRET`. Once registered, public admin registration is permanently locked.
-  * Pharmacy Verification Portal: Pending review, Verified (Approved), Rejected (mandatory rejection reason required), and Disabled.
-  * Platform metrics, registered customer oversight, and full audit logs.
-  * **Strict safety rule**: Admin does *not* create pharmacies; pharmacies originate solely from owner self-registration.
+5. **Real-Time Multi-Party Notification Workflows**:
+   - **Pharmacy Alert**: When a customer reserves a medicine, the pharmacy immediately receives an alert containing customer details (Name, Phone, Email) and reserved medicine details (Name, Category, Strength, Composition, Quantity, Price, Deadline).
+   - **Customer Alert on Action**: When the pharmacy owner accepts (approves) or rejects a reservation, the customer receives an immediate notification with clear status and pickup instructions.
+   - **Admin Alert**: When a new pharmacy registers, the administrator receives an alert: *"New Pharmacy Registration: [Pharmacy Name] added their details and is waiting for approval."*
+   - **Pharmacy Alert on Admin Decision**: When the admin approves a pharmacy, the pharmacy receives a congratulatory approval notification. If rejected, they receive a clear description with the exact rejection reason.
+
+6. **Safe Database Cleanup**:
+   - Preserves all genuine pharmacy names and accounts.
+   - Preserves all registered customer credentials and profiles.
+   - Preserves the entire 245-item master medicine catalog.
+   - Safely removes previously added medicine stock so pharmacies start fresh.
+   - Starts with an empty reservation list.
 
 ---
 
-## 🛠️ Technology Stack
+## 💻 Visual Studio Code (VS Code) Execution Guide
 
-* **Frontend**:
-  * **React.js 18** with **TypeScript** (Strict mode)
-  * **Vite 6** (Blazing fast HMR and optimized bundler)
-  * **Tailwind CSS 3** (Custom healthcare color scheme: `#00875A` / `#059669` / `#047857`)
-  * **React Router v6** (Protected routes and role navigation)
-  * **Leaflet & OpenStreetMap** (Interactive geospatial map with custom markers)
-  * **Lucide React** (Clean medical and interface iconography)
-* **Backend & Database**:
-  * **Supabase PostgreSQL** database
-  * **Supabase Authentication & Row Level Security (RLS)**
-  * **PostgreSQL Functions & Atomic Transactions**:
-    * `register_initial_admin`: Atomic single-admin creation with secret verification.
-    * `create_reservation_atomic`: Concurrency-safe stock deduction and status adjustment.
-    * `complete_reservation_and_bill`: Automated sequential bill generation (`BILL-YYYYMMDD-XXXX`).
-    * `admin_verify_pharmacy`: Role-enforced verification and audit logging.
-  * Resilient offline-first engine providing seamless local execution and live Supabase switching.
+Follow these simple, step-by-step instructions to run MediStock on your computer using VS Code:
 
----
+### Prerequisites:
+- **Node.js** (v18 or higher): Download from [nodejs.org](https://nodejs.org/)
+- **Visual Studio Code**: Download from [code.visualstudio.com](https://code.visualstudio.com/)
+- **Google Chrome** or any modern web browser
 
-## 📋 Complete API Catalogue Implementation (32 Endpoints)
+### Step 1: Open the Project in VS Code
+1. Extract `medistock-fullstack-app.zip` to your preferred folder (e.g. `C:\Projects\medistock-fullstack-app`).
+2. Open VS Code, click **File** &rarr; **Open Folder...**, and select the extracted `medistock-fullstack-app` folder.
 
-| # | Endpoint | Method | Module | Purpose |
-|---|---|---|---|---|
-| 1 | `/api/register` | POST | Auth | Register customer, pharmacy owner, or first admin |
-| 2 | `/api/login` | POST | Auth | Authenticate user with role-based JWT |
-| 3 | `/api/user/{id}` | GET | Auth | Retrieve authenticated profile |
-| 4 | `/api/pharmacies` | GET | Pharmacy | Find pharmacies by location / PIN code |
-| 5 | `/api/pharmacy/{id}` | GET | Pharmacy | View verified pharmacy details and inventory |
-| 6 | `/api/pharmacies` | POST | Pharmacy | Pharmacy self-registration (`PENDING_VERIFICATION`) |
-| 7 | `/api/pharmacy/{id}` | PUT | Pharmacy | Update pharmacy profile |
-| 8 | `/api/pharmacy/{id}` | DELETE | Pharmacy | Remove pharmacy |
-| 9 | `/api/medicines` | GET | Medicine | Search shared medicine catalogue |
-| 10 | `/api/medicine/{id}` | GET | Medicine | View medicine details |
-| 11 | `/api/medicines` | POST | Medicine | Add new medicine to shared catalogue |
-| 12 | `/api/medicine/{id}` | PUT | Medicine | Update medicine details |
-| 13 | `/api/medicine/{id}` | DELETE | Medicine | Delete medicine record |
-| 14 | `/api/inventory` | GET | Inventory | View pharmacy stock listings |
-| 15 | `/api/inventory` | POST | Inventory | Add medicine stock listing |
-| 16 | `/api/inventory/{id}` | PUT | Inventory | Update stock quantity, price, and status |
-| 17 | `/api/inventory/{id}` | DELETE | Inventory | Remove inventory listing |
-| 18 | `/api/inventory/verify` | POST | Inventory | Verify real-time stock availability |
-| 19 | `/api/search/medicine` | GET | Search | Search medicine availability with distance & prices |
-| 20 | `/api/pharmacies/nearby` | GET | Search | Find nearby approved pharmacies using GPS coords |
-| 21 | `/api/medicine/{id}/availability` | GET | Search | Check cross-pharmacy stock levels |
-| 22 | `/api/compare/medicine` | GET | Search | Compare medicine prices across pharmacies |
-| 23 | `/api/reservations` | POST | Reservation | Atomic medicine reservation with stock deduction |
-| 24 | `/api/reservations/{id}` | GET | Reservation | View reservation details |
-| 25 | `/api/reservations/{id}/cancel` | PUT | Reservation | Cancel reservation and restore stock |
-| 26 | `/api/billing` | POST | Billing | Generate pickup bill upon completion |
-| 27 | `/api/billing/{id}` | GET | Billing | Retrieve bill details and tax breakdown |
-| 28 | `/api/billing/user/{id}` | GET | Billing | View user billing history |
-| 29 | `/api/billing/{id}/receipt` | GET | Billing | Printable invoice receipt data |
-| 30 | `/api/admin/dashboard` | GET | Admin | System metrics, pharmacy status, and audit logs |
-| 31 | `/api/admin/pharmacy/verify` | PUT | Admin | Approve, reject, or disable pharmacy |
-| 32 | `/api/admin/reports` | GET | Admin | System distribution reports and reservation stats |
-
----
-
-## 💻 Local Execution Instructions
-
-### Prerequisites
-* **Node.js** (v18 or higher; tested on v26)
-* **npm**
-
-### Step-by-Step Run
-1. Navigate to the project root:
-   ```bash
-   cd medistock
-   ```
-2. Install dependencies (already pre-installed in workspace):
+### Step 2: Open Terminal & Install Dependencies
+1. In VS Code, open the integrated terminal: press ``Ctrl + ` `` (or click **Terminal** &rarr; **New Terminal**).
+2. Install the required project packages by running:
    ```bash
    npm install
    ```
-3. Start the local development server:
-   ```bash
-   npm run dev
-   ```
-4. Open your browser and visit:
-   ```
-   http://localhost:5173
-   ```
 
-### Connecting to Your Live Supabase Project
-1. Log in to [supabase.com](https://supabase.com) and create a new project.
-2. Open the **SQL Editor** in your Supabase dashboard and run the entire script in `supabase/schema.sql`.
-3. In `Project Settings > API`, copy your:
-   * **Project URL**
-   * **Anon / Public Key**
-4. Paste them into your `.env` file:
-   ```env
-   VITE_SUPABASE_URL=https://your-project.supabase.co
-   VITE_SUPABASE_ANON_KEY=your-anon-key
-   VITE_ADMIN_SETUP_SECRET=MEDISTOCK_SECRET_2026
-   ```
-5. Deploy seamlessly to **Vercel** with one click.
+### Step 3: Environment Setup (`.env`)
+A ready-to-use `.env` file is already included with default configurations:
+```env
+VITE_SUPABASE_URL=
+VITE_SUPABASE_ANON_KEY=
+VITE_ADMIN_SETUP_SECRET=MEDISTOCK_SECRET_2026
+```
+*(Note: MediStock runs seamlessly out of the box using its resilient offline-first database. If connecting to a cloud Supabase database, paste your project URL and public anon key into these variables).*
+
+### Step 4: Start the Development Server
+In your VS Code terminal, start the local Vite server:
+```bash
+npm run dev
+```
+You will see output similar to:
+```
+  VITE v6.x.x  ready in 450 ms
+
+  ➜  Local:   http://localhost:5173/
+  ➜  Network: use --host to expose
+```
+Hold `Ctrl` and click `http://localhost:5173/` in your terminal, or open Google Chrome and navigate to `http://localhost:5173/`.
+
+### Step 5: Build for Production (Optional Verification)
+To verify that all TypeScript code compiles with zero errors:
+```bash
+npm run build
+```
 
 ---
 
-## 👥 Demonstration Workflow for Project Viva / Presentation
+## 🗄️ Safe Database Cleanup Guide
 
-To demonstrate the full lifecycle tomorrow morning:
+If you wish to reset test orders and inventory while keeping all registered pharmacies and customer accounts:
 
-1. **Step 1: Admin Setup**
-   * Navigate to `Create account` &rarr; `Admin setup`.
-   * Fill out admin details and enter secret: `MEDISTOCK_SECRET_2026`.
-   * Submit to become the initial administrator.
-2. **Step 2: Pharmacy Self-Registration**
-   * Click `Create account` &rarr; `I run a pharmacy`.
-   * Enter pharmacy details (e.g., *Green Cross Pharmacy*, Licence *KA-DWD-2024-1189*, Address *Keshwapur, Hubballi*, PIN *580023*).
-   * Notice that the pharmacy is placed in `PENDING_VERIFICATION` and cannot yet publish stock.
-3. **Step 3: Admin Review & Approval**
-   * Log in as the Administrator.
-   * Go to `Pharmacy verification` &rarr; `Pending`.
-   * Click `Approve` (or test `Reject` with a mandatory reason).
-   * Notice the real-time status change to `Verified` and the recorded audit event.
-4. **Step 4: Pharmacy Adds Stock**
-   * Log in as the approved Pharmacy.
-   * Add a medicine from the catalogue (or click `Add new medicine to catalogue` if adding a new composition).
-   * Set Quantity (e.g. 25), Price (e.g. ₹28.00), and Expiry Date.
-   * Save changes &mdash; observe the updated stat cards (Medicines listed: 1, In stock: 1).
-5. **Step 5: Customer Discovery & Reservation**
-   * Open the homepage (`/`) or search page (`/search`).
-   * Search for the medicine.
-   * Inspect the result card showing pharmacy name, price (₹28.00), availability badge (*Reported available*), and the Leaflet interactive map pin!
-   * Click `Reserve`, enter quantity (e.g. 2 units), and confirm.
-   * Notice the pharmacy's stock atomically decreases from 25 to 23!
-6. **Step 6: Counter Collection & Invoice Generation**
-   * Pharmacy opens `Reservations` tab &rarr; marks status as `Ready for Pickup`, then `Mark Collected / Bill`.
-   * Official printable invoice modal opens with bill number (`BILL-YYYYMMDD-XXXX`), customer details, pharmacy licence, and tax breakdown!
+### Method A: Standalone SQL Script (for Supabase Cloud DB)
+1. Open your Supabase Dashboard &rarr; **SQL Editor**.
+2. Open the file `supabase/safe_cleanup.sql`.
+3. Copy and paste the contents into the SQL Editor and click **Run**.
+4. **What this does:**
+   - Deletes rows in `public.bills` and `public.reservations`.
+   - Deletes rows in `public.inventory` (so pharmacies start with a clean, empty stock list).
+   - Deletes past test `public.alerts`.
+   - **Guarantees 100% preservation** of `public.pharmacies`, `public.profiles` (customers, pharmacies, admins), and `public.medicines`.
+   - Uses zero `DROP TABLE` or cascading drops.
+
+### Method B: Automated Local Cleanup
+- The offline store automatically backs up all existing profiles and pharmacy names into `localStorage` under `medistock_db_backup_<timestamp>`.
+- Registered pharmacy accounts and customer accounts are kept intact.
+- Inventory stock and reservations are set to empty so you can demonstrate adding stock and placing reservations from scratch.
+
+---
+
+## 🧪 Demonstration & Testing Workflow
+
+### 1. Customer Experience:
+1. Navigate to `/search` or `/catalog`.
+2. Select a disease category such as **Blood Pressure (BP)** or **Diabetes**.
+3. View available medicines (Amlodipine, Telmisartan, Metformin, etc.).
+4. Click on a medicine to inspect dosage variants and see which pharmacies have stock.
+5. Click **Reserve Medicine (48h)**.
+6. A confirmation banner appears displaying the reservation reference ID, customer phone, pickup collection deadline, and a **View Reservation Details** button.
+7. Click **View Reservation Details** to open the comprehensive modal showing **Customer Details**, **Pharmacy Details**, and **Medicine Details**.
+8. Go to **My Reservations** (`/customer/reservations`) to view active countdown timers and notification dispatches.
+
+### 2. Pharmacy Owner Experience:
+1. Log in as a pharmacy owner.
+2. In **Pharmacy Dashboard** &rarr; **Add Medicine to Stock**:
+   - Select a disease category (e.g. *Blood Pressure*).
+   - Notice the category suggestions appearing as 1-click chips.
+   - Enter stock quantity, price, batch number, and expiry date.
+   - Click **Save Medicine to Stock**.
+3. In **Reservations / Orders Tab**:
+   - View customer reservations placed for this pharmacy.
+   - Inspect columns: Customer Name & Phone, Medicine Name & Category, Strength/Composition, Qty, Total (₹), Order Date, Last Date to Pick Up, and Status.
+   - Click **View Details** to open the complete Reservation Details popup.
+   - Click **Accept** to approve or **Reject** to cancel. The customer will immediately receive a notification in their bell icon.
+   - Click **Mark Ready** when prepared at the counter.
+   - Click **Mark Collected / Bill** to generate the official tax invoice receipt.
+
+### 3. Administrator Experience:
+1. Log in as Administrator (`/login`).
+2. If a new pharmacy registers, a notification alert is automatically delivered to the Admin bell icon.
+3. In **Pharmacy Verification Tab**, review submitted pharmacy details (owner name, licence number, address, contact).
+4. Click **Approve** (or click **Reject** with a clear rejection reason).
+5. The pharmacy receives a real-time notification alert confirming approval or detailing the rejection reason.
+
+---
+
+## 📁 Repository & File Structure
+
+```
+medistock/
+├── index.html                   # HTML entry point with meta tags
+├── package.json                 # Project dependencies and npm scripts
+├── tsconfig.json                # TypeScript compiler configuration
+├── vite.config.ts               # Vite bundler configuration
+├── supabase/
+│   ├── schema.sql               # Complete Supabase PostgreSQL schema with RLS
+│   ├── seed_medicines.sql       # SQL seed for all 245 catalog medicines
+│   └── safe_cleanup.sql         # Non-destructive safe database cleanup script
+├── src/
+│   ├── App.tsx                  # Main application routes and AuthProvider
+│   ├── main.tsx                 # React application mounting
+│   ├── index.css                # Tailwind CSS stylesheets
+│   ├── types/
+│   │   └── database.ts          # TypeScript database interfaces & snapshot types
+│   ├── services/
+│   │   ├── api.ts               # Central API service, notifications, & safe cleanup
+│   │   └── supabase.ts          # Supabase client & environment helpers
+│   ├── context/
+│   │   └── AuthContext.tsx      # Authentication state and role management
+│   ├── data/
+│   │   └── medicineCatalogData.ts # 245 verified medicines & 40 disease categories
+│   ├── components/
+│   │   ├── Navbar.tsx           # Navigation bar with real-time notification bell
+│   │   ├── Footer.tsx           # Application footer
+│   │   ├── StatusBadge.tsx      # Clean status badges
+│   │   ├── MapWidget.tsx        # Leaflet interactive map with pharmacy pins
+│   │   ├── Modal.tsx            # Base modal dialog
+│   │   ├── InvoiceModal.tsx     # Printable tax invoice receipt modal
+│   │   ├── CallPharmacyModal.tsx # Counter dialing modal
+│   │   ├── EditCustomerProfileModal.tsx # Customer profile editing modal
+│   │   ├── EditPharmacyModal.tsx # Pharmacy profile editing modal
+│   │   └── ReservationDetailsModal.tsx # Comprehensive reservation details popup
+│   └── pages/
+│       ├── HomePage.tsx         # Landing page with search bar & category shortcuts
+│       ├── LoginPage.tsx        # Authentication login page
+│       ├── RegisterPage.tsx     # Customer, Pharmacy, & Admin registration page
+│       ├── SearchResultsPage.tsx # Medicine search, filters, & map view
+│       ├── MedicineCatalogPage.tsx # Master medicine catalog & category browser
+│       ├── PharmacyDetailsPage.tsx # Pharmacy public profile & listed inventory
+│       ├── PharmacyDashboardPage.tsx # Pharmacy inventory & customer orders dashboard
+│       ├── CustomerReservationsPage.tsx # Customer reservations & notifications
+│       ├── PendingVerificationPage.tsx # Pharmacy verification pending / rejected view
+│       └── AdminDashboardPage.tsx # Administrator pharmacy verification & reports
+```
+
+---
+
+## 📜 Compliance & Academic Project Information
+
+- **Institution**: SDM College of Engineering and Technology, Dharwad - 580002
+- **Department**: Information Science and Engineering
+- **Course**: Minor Project - I (22UISL505)
+- **Year**: 2026
+- **Status**: Production-Ready / Complete Compliance with SRS & Design Phase Specifications

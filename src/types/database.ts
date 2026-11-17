@@ -128,6 +128,17 @@ export interface Reservation {
   stock_restored?: boolean; // Ensures 48h stock restoration happens exactly once
   reminder_30m_sent?: boolean; // Tracks whether 30-minute pre-expiry reminder has been sent
   updated_at: string;
+  // Direct snapshot properties to prevent undefined when relational join is pending or missing
+  customer_name?: string;
+  customer_phone?: string;
+  customer_email?: string;
+  medicine_name?: string;
+  medicine_category?: string;
+  medicine_strength?: string;
+  medicine_composition?: string;
+  pharmacy_name?: string;
+  pharmacy_address?: string;
+  pharmacy_phone?: string;
   // Joined relations
   user?: Profile;
   pharmacy?: Pharmacy;

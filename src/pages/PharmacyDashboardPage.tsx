@@ -18,6 +18,7 @@ import { StatusBadge } from '../components/StatusBadge';
 import { InvoiceModal } from '../components/InvoiceModal';
 import { Modal } from '../components/Modal';
 import { EditPharmacyModal } from '../components/EditPharmacyModal';
+import { ReservationDetailsModal } from '../components/ReservationDetailsModal';
 import { 
   PlusCircle, 
   Edit3, 
@@ -97,6 +98,9 @@ export const PharmacyDashboardPage: React.FC = () => {
   // Invoice Modal
   const [selectedBillForPrint, setSelectedBillForPrint] = useState<Bill | null>(null);
 
+  // Reservation Details Modal (Requirement 3)
+  const [selectedResForDetails, setSelectedResForDetails] = useState<Reservation | null>(null);
+
   useEffect(() => {
     if (!user || user.role !== 'PHARMACY') {
       navigate('/login');
@@ -116,11 +120,18 @@ export const PharmacyDashboardPage: React.FC = () => {
     setIsLoading(true);
     try {
       const pharms = await api.getPharmacies({ onlyApproved: false });
-      let myPharm = pharms.find(p => p.owner_user_id === user!.id || (user!.email && p.email?.toLowerCase() === user!.email.toLowerCase())) || null;
+      let myPharm = pharms.find(p => 
+        p.owner_user_id === user!.id || 
+        (user!.email && p.email?.toLowerCase().trim() === user!.email.toLowerCase().trim()) ||
+        (user!.mobile_number && p.mobile_number?.trim() === user!.mobile_number.trim())
+      ) || null;
       
-      // Fallback: If logged in as pharmacy but no pharmacy record was directly linked
+      // Strict pharmacy isolation: match by owner name or single pharmacy fallback only
       if (!myPharm && user!.role === 'PHARMACY') {
-        if (pharms.length > 0) {
+        const matchingByName = pharms.find(p => p.owner_name?.toLowerCase() === user!.full_name?.toLowerCase());
+        if (matchingByName) {
+          myPharm = matchingByName;
+        } else if (pharms.length === 1) {
           myPharm = pharms[0];
         }
       }
@@ -1012,79 +1023,118 @@ export const PharmacyDashboardPage: React.FC = () => {
                 <thead className="bg-slate-50 text-slate-600 font-semibold uppercase border-b border-slate-200">
                   <tr>
                     <th className="px-4 py-3">Customer</th>
-                    <th className="px-4 py-3">Medicine</th>
+                    <th className="px-4 py-3">Medicine & Category</th>
+                    <th className="px-4 py-3">Strength / Formulation</th>
                     <th className="px-4 py-3">Qty</th>
                     <th className="px-4 py-3">Total (₹)</th>
+                    <th className="px-4 py-3">Order Date</th>
+                    <th className="px-4 py-3">Last Date to Pick Up</th>
                     <th className="px-4 py-3">Status</th>
-                    <th className="px-4 py-3">Reserved At</th>
                     <th className="px-4 py-3 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {reservations.map((res) => (
-                    <tr key={res.id} className="hover:bg-slate-50/60 transition-colors">
-                      <td className="px-4 py-3">
-                        <div className="font-bold text-slate-900">{res.user?.full_name || 'Customer'}</div>
-                        <div className="text-[11px] text-slate-500">{res.user?.mobile_number}</div>
-                      </td>
-                      <td className="px-4 py-3 font-semibold text-slate-800">
-                        {res.medicine?.display_name}
-                      </td>
-                      <td className="px-4 py-3 font-bold text-slate-800">{res.quantity}</td>
-                      <td className="px-4 py-3 font-bold text-emerald-700">₹{res.total_price}</td>
-                      <td className="px-4 py-3">
-                        <StatusBadge type="reservation" status={res.status} />
-                      </td>
-                      <td className="px-4 py-3 text-slate-400 text-[11px]">
-                        {new Date(res.created_at).toLocaleDateString()}
-                      </td>
-                      <td className="px-4 py-3 text-right space-x-1 whitespace-nowrap">
-                        {res.status === 'PENDING' && (
-                          <>
+                  {reservations.map((res) => {
+                    const custName = res.user?.full_name || res.customer_name || 'Registered Customer';
+                    const custPhone = res.user?.mobile_number || res.customer_phone || '';
+                    const medName = res.medicine?.display_name || res.medicine_name || 'Medicine';
+                    const medCat = res.medicine?.category || res.medicine_category || 'General';
+                    const medStrength = res.variant_details || res.medicine?.strength_form || res.medicine_strength || 'Standard';
+                    const medComp = res.medicine?.composition || res.medicine?.active_ingredient || res.medicine_composition || '';
+                    const pickupDeadline = new Date(res.expires_at || new Date(res.created_at).getTime() + 48 * 60 * 60 * 1000).toLocaleString('en-IN', {
+                      day: 'numeric',
+                      month: 'short',
+                      hour: 'numeric',
+                      minute: '2-digit',
+                      hour12: true,
+                    });
+
+                    return (
+                      <tr key={res.id} className="hover:bg-slate-50/60 transition-colors">
+                        <td className="px-4 py-3">
+                          <div className="font-bold text-slate-900">{custName}</div>
+                          {custPhone && <div className="text-[11px] text-slate-500 font-medium">+91 {custPhone}</div>}
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="font-bold text-slate-900">{medName}</div>
+                          <span className="inline-block mt-0.5 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                            {medCat}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="font-semibold text-slate-800">{medStrength}</div>
+                          {medComp && <div className="text-[10px] text-slate-500 truncate max-w-[140px]" title={medComp}>{medComp}</div>}
+                        </td>
+                        <td className="px-4 py-3 font-bold text-slate-800">{res.quantity}</td>
+                        <td className="px-4 py-3 font-bold text-emerald-700">₹{res.total_price}</td>
+                        <td className="px-4 py-3 text-slate-500 text-[11px]">
+                          {new Date(res.created_at).toLocaleDateString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          <div className="text-emerald-800 font-bold text-[11px] flex items-center gap-1">
+                            <Clock className="w-3 h-3 text-emerald-600" />
+                            {pickupDeadline}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <StatusBadge type="reservation" status={res.status} />
+                        </td>
+                        <td className="px-4 py-3 text-right space-x-1 whitespace-nowrap">
+                          <button
+                            type="button"
+                            onClick={() => setSelectedResForDetails(res)}
+                            className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold rounded text-[11px] border border-slate-300 transition-colors"
+                          >
+                            View Details
+                          </button>
+
+                          {res.status === 'PENDING' && (
+                            <>
+                              <button
+                                onClick={() => handleUpdateReservation(res.id, 'ACCEPTED')}
+                                className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded text-[11px] transition-colors"
+                              >
+                                Accept
+                              </button>
+                              <button
+                                onClick={() => handleUpdateReservation(res.id, 'REJECTED')}
+                                className="px-2.5 py-1 border border-rose-300 text-rose-700 hover:bg-rose-50 font-bold rounded text-[11px] transition-colors"
+                              >
+                                Reject
+                              </button>
+                            </>
+                          )}
+
+                          {res.status === 'ACCEPTED' && (
                             <button
-                              onClick={() => handleUpdateReservation(res.id, 'ACCEPTED')}
-                              className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded text-[11px]"
+                              onClick={() => handleUpdateReservation(res.id, 'READY_FOR_COLLECTION')}
+                              className="px-2.5 py-1 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded text-[11px] transition-colors"
                             >
-                              Accept
+                              Mark Ready
                             </button>
+                          )}
+
+                          {res.status === 'READY_FOR_COLLECTION' && (
                             <button
-                              onClick={() => handleUpdateReservation(res.id, 'REJECTED')}
-                              className="px-2.5 py-1 border border-rose-300 text-rose-700 hover:bg-rose-50 font-bold rounded text-[11px]"
+                              onClick={() => handleUpdateReservation(res.id, 'COMPLETED')}
+                              className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded text-[11px] transition-colors"
                             >
-                              Reject
+                              Mark Collected / Bill
                             </button>
-                          </>
-                        )}
+                          )}
 
-                        {res.status === 'ACCEPTED' && (
-                          <button
-                            onClick={() => handleUpdateReservation(res.id, 'READY_FOR_COLLECTION')}
-                            className="px-2.5 py-1 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded text-[11px]"
-                          >
-                            Mark Ready
-                          </button>
-                        )}
-
-                        {res.status === 'READY_FOR_COLLECTION' && (
-                          <button
-                            onClick={() => handleUpdateReservation(res.id, 'COMPLETED')}
-                            className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded text-[11px]"
-                          >
-                            Mark Collected / Bill
-                          </button>
-                        )}
-
-                        {res.status === 'COMPLETED' && res.bill && (
-                          <button
-                            onClick={() => setSelectedBillForPrint(res.bill!)}
-                            className="px-2.5 py-1 border border-emerald-300 text-emerald-800 hover:bg-emerald-50 font-bold rounded text-[11px]"
-                          >
-                            View Invoice
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
+                          {res.status === 'COMPLETED' && res.bill && (
+                            <button
+                              onClick={() => setSelectedBillForPrint(res.bill!)}
+                              className="px-2.5 py-1 border border-emerald-300 text-emerald-800 hover:bg-emerald-50 font-bold rounded text-[11px] transition-colors"
+                            >
+                              View Invoice
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -1585,6 +1635,14 @@ export const PharmacyDashboardPage: React.FC = () => {
         isOpen={Boolean(selectedBillForPrint)}
         onClose={() => setSelectedBillForPrint(null)}
         bill={selectedBillForPrint}
+      />
+
+      {/* Reservation Details Modal (Requirement 3) */}
+      <ReservationDetailsModal
+        isOpen={Boolean(selectedResForDetails)}
+        onClose={() => setSelectedResForDetails(null)}
+        reservation={selectedResForDetails}
+        currentUser={user}
       />
 
       {/* Edit Pharmacy Details Modal */}

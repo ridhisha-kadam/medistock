@@ -24,8 +24,19 @@ export const Navbar: React.FC = () => {
     const loadAlerts = async () => {
       try {
         let userAlerts: Alert[] = [];
-        if (user.role === 'PHARMACY' && pharmacy) {
-          userAlerts = await api.getPharmacyAlerts(pharmacy.id);
+        if (user.role === 'PHARMACY') {
+          let pharmId = pharmacy?.id;
+          if (!pharmId) {
+            const pharms = await api.getPharmacies({ onlyApproved: false });
+            pharmId = pharms.find(p => p.owner_user_id === user.id || (user.email && p.email?.toLowerCase() === user.email.toLowerCase()))?.id;
+          }
+          if (pharmId) {
+            userAlerts = await api.getPharmacyAlerts(pharmId);
+          } else {
+            userAlerts = await api.getUserAlerts(user.id);
+          }
+        } else if (user.role === 'ADMIN') {
+          userAlerts = await api.getAdminAlerts();
         } else {
           userAlerts = await api.getUserAlerts(user.id);
         }
@@ -296,6 +307,17 @@ export const Navbar: React.FC = () => {
                           className="text-emerald-700 font-bold hover:underline text-xs"
                         >
                           Pharmacy Dashboard →
+                        </button>
+                      ) : isAdmin ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsNotificationOpen(false);
+                            navigate('/admin');
+                          }}
+                          className="text-emerald-700 font-bold hover:underline text-xs"
+                        >
+                          Admin Dashboard →
                         </button>
                       ) : null}
                     </div>

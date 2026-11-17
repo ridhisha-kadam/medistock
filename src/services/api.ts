@@ -185,9 +185,17 @@ class LocalDatabaseStore {
       this.save();
     }
 
-    // Ensure verified approved pharmacies and inventory exist for testing search and reservations
+    // Ensure verified approved pharmacies exist
     if (!this.pharmacies || this.pharmacies.length === 0) {
       this.initDefaultPharmaciesAndInventory();
+    }
+
+    // REQUIREMENT 4: Safe Database Cleanup
+    // Execute safe cleanup: Keeps all pharmacy names and accounts, genuine customer accounts and login credentials.
+    // Clears inventory (initially empty) and reservations (empty list).
+    if (typeof localStorage !== 'undefined' && localStorage.getItem('medistock_safe_cleanup_v2_applied') !== 'true') {
+      this.performSafeCleanup();
+      localStorage.setItem('medistock_safe_cleanup_v2_applied', 'true');
     }
   }
 
@@ -268,6 +276,13 @@ class LocalDatabaseStore {
     ];
 
     this.pharmacies = defaultPharmacies;
+
+    // If safe cleanup has already set the inventory to empty, do not re-populate sample inventory!
+    if (typeof localStorage !== 'undefined' && (localStorage.getItem('medistock_cleaned_safe') === 'true' || localStorage.getItem('medistock_safe_cleanup_v2_applied') === 'true')) {
+      this.inventory = [];
+      this.save();
+      return;
+    }
 
     // Filter key common medicines for pharmacy stock (BP, Diabetes, Fever, Pain, Heart, etc.)
     const keyMedicines = this.medicines.filter(m => {
@@ -355,6 +370,81 @@ class LocalDatabaseStore {
     this.alerts = [];
     this.passwords = {};
     this.save();
+  }
+
+  /**
+   * REQUIREMENT 4: Safe Database Cleanup
+   * - Backs up current state to localStorage before any modification.
+   * - KEEPS all registered pharmacy names and accounts unchanged.
+   * - KEEPS all genuine customer accounts, phone numbers, and credentials.
+   * - Removes all previously added medicines from all pharmacy stock records (inventory = []).
+   * - Removes all existing reservation records (reservations = []).
+   * - Clears legacy test bills and alerts.
+   */
+  performSafeCleanup(): { backedUp: boolean; backupKey: string } {
+    const backupKey = `medistock_db_backup_${Date.now()}`;
+    try {
+      const backupData = {
+        timestamp: new Date().toISOString(),
+        profiles: [...this.profiles],
+        pharmacies: [...this.pharmacies],
+        medicines: [...this.medicines],
+        inventory: [...this.inventory],
+        reservations: [...this.reservations],
+        bills: [...this.bills],
+        alerts: [...this.alerts],
+        passwords: { ...this.passwords },
+      };
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(backupKey, JSON.stringify(backupData));
+      }
+    } catch (e) {
+      console.warn('Backup error during safe cleanup:', e);
+    }
+
+    // 1. KEEP all existing pharmacy accounts and names (intact!)
+    // 2. KEEP all genuine customer profiles, phone numbers, and passwords
+    this.profiles = this.profiles.filter(p => p && p.id && p.email);
+
+    // 3. Clear pharmacy stock so pharmacies can add fresh stock from dashboard
+    this.inventory = [];
+
+    // 4. Start with an empty reservation list
+    this.reservations = [];
+
+    // 5. Clear past test bills and past reservation alerts
+    this.bills = [];
+    this.alerts = [];
+
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('medistock_cleaned_safe', 'true');
+      localStorage.setItem('medistock_safe_cleanup_v2_applied', 'true');
+    }
+    this.save();
+
+    return { backedUp: true, backupKey };
+  }
+
+  backupDatabase(): string {
+    const backupData = {
+      timestamp: new Date().toISOString(),
+      profiles: [...this.profiles],
+      pharmacies: [...this.pharmacies],
+      medicines: [...this.medicines],
+      inventory: [...this.inventory],
+      reservations: [...this.reservations],
+      bills: [...this.bills],
+      alerts: [...this.alerts],
+      passwords: { ...this.passwords },
+    };
+    const jsonStr = JSON.stringify(backupData, null, 2);
+    try {
+      const backupKey = `medistock_db_backup_${Date.now()}`;
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(backupKey, jsonStr);
+      }
+    } catch (_) {}
+    return jsonStr;
   }
 }
 
@@ -779,10 +869,23 @@ export const api = {
       updated_at: new Date().toISOString(),
     };
 
+    const adminAlert: Alert = {
+      id: generateId(),
+      pharmacy_id: newPharmacy.id,
+      user_id: 'admin',
+      type: 'PHARMACY_PENDING_APPROVAL',
+      message: `🏥 New Pharmacy Registration: "${newPharmacy.name}" (Owner: ${newPharmacy.owner_name}, Mobile: +91 ${newPharmacy.mobile_number}, Licence: ${newPharmacy.licence_number}, City: ${newPharmacy.city}) added their details and is waiting for your verification & approval.`,
+      read_status: false,
+      created_at: new Date().toISOString(),
+    };
+
     if (isLiveSupabaseConfigured()) {
       try {
         const { error: insErr } = await supabase.from('pharmacies').insert([newPharmacy]);
         if (!insErr) {
+          try {
+            await supabase.from('alerts').insert([adminAlert]);
+          } catch (_) {}
           await supabase.from('audit_logs').insert([{
             id: generateId(),
             actor_user_id: data.ownerUserId,
@@ -791,6 +894,12 @@ export const api = {
             entity_id: newPharmacy.id,
             details: { name: newPharmacy.name, licence: newPharmacy.licence_number },
           }]);
+          localDB.pharmacies.push(newPharmacy);
+          localDB.alerts.unshift(adminAlert);
+          localDB.save();
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('medistock_alert_updated'));
+          }
           return { success: true, pharmacy: newPharmacy };
         }
       } catch (e) {
@@ -799,7 +908,11 @@ export const api = {
     }
 
     localDB.pharmacies.push(newPharmacy);
+    localDB.alerts.unshift(adminAlert);
     localDB.save();
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('medistock_alert_updated'));
+    }
     return { success: true, pharmacy: newPharmacy };
   },
 
@@ -1636,6 +1749,30 @@ export const api = {
     // FEATURE 7: Exactly 48-Hour Reservation Expiry Window
     const expiresAt = new Date(now.getTime() + 48 * 60 * 60 * 1000).toISOString();
 
+    const medicine = await this.getMedicineById(data.medicineId);
+    const medName = medicine?.display_name || 'Medicine';
+    let userProfile = await this.getUserProfile(data.userId);
+    if (!userProfile && typeof window !== 'undefined') {
+      try {
+        const storedAuth = localStorage.getItem('medistock_auth_user');
+        if (storedAuth) {
+          const parsed = JSON.parse(storedAuth);
+          if (parsed && (parsed.id === data.userId || parsed.email)) {
+            userProfile = parsed;
+          }
+        }
+      } catch (_) {}
+    }
+    const customerPhone = userProfile?.mobile_number || 'Registered Mobile';
+    const customerName = userProfile?.full_name || 'Registered Customer';
+    const customerEmail = userProfile?.email || '';
+    const medCategory = medicine?.category || 'General';
+    const medStrength = data.variantDetails || medicine?.strength_form || 'Standard';
+    const medComposition = medicine?.composition || medicine?.active_ingredient || medicine?.generic_name || 'Active ingredient';
+    const pharmacyName = pharmacy.name;
+    const pharmacyAddress = `${pharmacy.address}, ${pharmacy.city}${pharmacy.pin_code ? ' - ' + pharmacy.pin_code : ''}`;
+    const pharmacyPhone = pharmacy.mobile_number;
+
     const newRes: Reservation = {
       id: generateId(),
       user_id: data.userId,
@@ -1653,6 +1790,20 @@ export const api = {
       stock_restored: false,
       reminder_30m_sent: false,
       updated_at: now.toISOString(),
+      // Snapshot fields so customer and medicine are never undefined
+      customer_name: customerName,
+      customer_phone: customerPhone,
+      customer_email: customerEmail,
+      medicine_name: medName,
+      medicine_category: medCategory,
+      medicine_strength: medStrength,
+      medicine_composition: medComposition,
+      pharmacy_name: pharmacyName,
+      pharmacy_address: pharmacyAddress,
+      pharmacy_phone: pharmacyPhone,
+      user: userProfile || undefined,
+      pharmacy: pharmacy,
+      medicine: medicine || undefined,
     };
 
     // Format collection end date and time
@@ -1666,12 +1817,6 @@ export const api = {
       hour12: true,
     }).format(new Date(expiresAt));
 
-    const medicine = await this.getMedicineById(data.medicineId);
-    const medName = medicine?.display_name || 'Medicine';
-    const userProfile = await this.getUserProfile(data.userId);
-    const customerPhone = userProfile?.mobile_number || 'Registered Mobile';
-    const customerName = userProfile?.full_name || 'Customer';
-
     // 1. Customer Reservation Notification Alert with End Date & Phone Number
     const customerAlert: Alert = {
       id: generateId(),
@@ -1683,12 +1828,12 @@ export const api = {
       created_at: now.toISOString(),
     };
 
-    // 2. Pharmacy New Reservation Alert with Customer Number & End Date
+    // 2. Pharmacy New Reservation Alert with Full Customer & Medicine Details per User Request
     const pharmacyAlert: Alert = {
       id: generateId(),
       pharmacy_id: data.pharmacyId,
       type: 'NEW_RESERVATION',
-      message: `🔔 New Reservation #${newRes.id.slice(-6).toUpperCase()}: ${customerName} (+91 ${customerPhone}) reserved ${medName} x${data.quantity}. Collection Deadline: ${collectionDeadlineFormatted}. Stock held at counter.`,
+      message: `🔔 New Customer Reservation #${newRes.id.slice(-6).toUpperCase()}: ${customerName} (+91 ${customerPhone}${customerEmail ? `, ${customerEmail}` : ''}) reserved ${medName} [Category: ${medCategory} | Strength: ${medStrength} | Composition: ${medComposition}] (Qty: ${data.quantity}, Total: ₹${totalPrice}). Collection Deadline: ${collectionDeadlineFormatted}. Stock held at counter.`,
       read_status: false,
       created_at: now.toISOString(),
     };
@@ -1979,6 +2124,61 @@ export const api = {
       }
     }
 
+    // Dispatch Customer Notifications upon Pharmacy Actions per User Requirements
+    const medTitle = res.medicine?.display_name || res.medicine_name || 'Prescription Medicine';
+    const pharmTitle = res.pharmacy?.name || res.pharmacy_name || 'Pharmacy';
+
+    let customerStatusAlert: Alert | null = null;
+
+    if (newStatus === 'ACCEPTED') {
+      customerStatusAlert = {
+        id: generateId(),
+        pharmacy_id: res.pharmacy_id,
+        user_id: res.user_id,
+        type: 'RESERVATION_ACCEPTED',
+        message: `✅ Reservation Accepted: Your reservation #${res.id.slice(-6).toUpperCase()} for ${medTitle} (Qty: ${res.quantity}) has been ACCEPTED by ${pharmTitle}. You can collect it at the counter before the deadline.`,
+        read_status: false,
+        created_at: now,
+      };
+    } else if (newStatus === 'REJECTED') {
+      customerStatusAlert = {
+        id: generateId(),
+        pharmacy_id: res.pharmacy_id,
+        user_id: res.user_id,
+        type: 'RESERVATION_REJECTED',
+        message: `❌ Reservation Rejected: Your reservation #${res.id.slice(-6).toUpperCase()} for ${medTitle} was REJECTED by ${pharmTitle}. The reserved stock hold has been released.`,
+        read_status: false,
+        created_at: now,
+      };
+    } else if (newStatus === 'READY_FOR_COLLECTION') {
+      customerStatusAlert = {
+        id: generateId(),
+        pharmacy_id: res.pharmacy_id,
+        user_id: res.user_id,
+        type: 'READY_FOR_COLLECTION',
+        message: `📦 Ready for Pickup: Your medicine ${medTitle} (Qty: ${res.quantity}) is packed and ready for counter pickup at ${pharmTitle}. Ref ID: #${res.id.slice(-6).toUpperCase()}.`,
+        read_status: false,
+        created_at: now,
+      };
+    } else if (newStatus === 'COMPLETED') {
+      customerStatusAlert = {
+        id: generateId(),
+        pharmacy_id: res.pharmacy_id,
+        user_id: res.user_id,
+        type: 'RESERVATION_COMPLETED',
+        message: `🎉 Medicine Collected: Reservation #${res.id.slice(-6).toUpperCase()} for ${medTitle} has been completed at ${pharmTitle}. Invoice generated.`,
+        read_status: false,
+        created_at: now,
+      };
+    }
+
+    if (customerStatusAlert) {
+      localDB.alerts.unshift(customerStatusAlert);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('medistock_alert_updated'));
+      }
+    }
+
     if (isLiveSupabaseConfigured()) {
       try {
         await supabase.from('reservations').update({ 
@@ -1986,6 +2186,11 @@ export const api = {
           updated_at: now,
           ...(newStatus === 'COMPLETED' ? { collected_at: now } : {})
         }).eq('id', id);
+        if (customerStatusAlert) {
+          try {
+            await supabase.from('alerts').insert([customerStatusAlert]);
+          } catch (_) {}
+        }
         return { success: true, reservation: { ...res, status: newStatus }, bill: generatedBill };
       } catch (e) {
         console.warn('Supabase updateReservationStatus fallback:', e);
@@ -2223,6 +2428,39 @@ export const api = {
 
     const now = new Date().toISOString();
 
+    const targetPharm = localDB.pharmacies[idx] || (data.pharmacyId ? localDB.pharmacies.find(p => p.id === data.pharmacyId) : null);
+    let pharmacyStatusAlert: Alert | null = null;
+
+    if (data.status === 'APPROVED') {
+      pharmacyStatusAlert = {
+        id: generateId(),
+        pharmacy_id: data.pharmacyId,
+        user_id: targetPharm?.owner_user_id || undefined,
+        type: 'PHARMACY_APPROVED',
+        message: `🎉 Congratulations! Your pharmacy "${targetPharm?.name || 'Pharmacy'}" has been APPROVED to be part of MediStock. Your medicine stock, store profile, and counter availability are now live for patient searches and reservations.`,
+        read_status: false,
+        created_at: now,
+      };
+    } else if (data.status === 'REJECTED') {
+      const reasonDesc = data.rejectionReason?.trim() || 'Licence or regulatory documents verification failed';
+      pharmacyStatusAlert = {
+        id: generateId(),
+        pharmacy_id: data.pharmacyId,
+        user_id: targetPharm?.owner_user_id || undefined,
+        type: 'PHARMACY_REJECTED',
+        message: `⚠️ Notice regarding "${targetPharm?.name || 'Pharmacy'}": Your MediStock pharmacy application has been REJECTED. Description / Reason: "${reasonDesc}". Please review your documents or contact administrator for reconsideration.`,
+        read_status: false,
+        created_at: now,
+      };
+    }
+
+    if (pharmacyStatusAlert) {
+      localDB.alerts.unshift(pharmacyStatusAlert);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('medistock_alert_updated'));
+      }
+    }
+
     if (isLiveSupabaseConfigured()) {
       try {
         const { data: updated, error } = await supabase
@@ -2237,6 +2475,12 @@ export const api = {
           .eq('id', data.pharmacyId)
           .select()
           .single();
+
+        if (pharmacyStatusAlert) {
+          try {
+            await supabase.from('alerts').insert([pharmacyStatusAlert]);
+          } catch (_) {}
+        }
 
         if (updated && !error) {
           await supabase.from('audit_logs').insert([{
@@ -2320,13 +2564,23 @@ export const api = {
 
     const localItems = localDB.reservations
       .filter(r => r.user_id === userId)
-      .map(r => ({
-        ...r,
-        user: localDB.profiles.find(p => p.id === r.user_id),
-        pharmacy: localDB.pharmacies.find(p => p.id === r.pharmacy_id),
-        medicine: localDB.medicines.find(m => m.id === r.medicine_id) || PREDEFINED_MEDICINES.find(m => m.id === r.medicine_id),
-        bill: localDB.bills.find(b => b.reservation_id === r.id),
-      }));
+      .map(r => {
+        const u = localDB.profiles.find(p => p.id === r.user_id)
+          || (r.customer_name ? { id: r.user_id, full_name: r.customer_name, mobile_number: r.customer_phone || '', email: r.customer_email || '' } as Profile : undefined);
+        const p = localDB.pharmacies.find(ph => ph.id === r.pharmacy_id)
+          || (r.pharmacy_name ? { id: r.pharmacy_id, name: r.pharmacy_name, address: r.pharmacy_address || '', mobile_number: r.pharmacy_phone || '' } as Pharmacy : undefined);
+        const m = localDB.medicines.find(med => med.id === r.medicine_id)
+          || PREDEFINED_MEDICINES.find(med => med.id === r.medicine_id)
+          || (r.medicine_name ? { id: r.medicine_id, display_name: r.medicine_name, category: r.medicine_category || 'General', strength_form: r.medicine_strength || '' } as Medicine : undefined);
+
+        return {
+          ...r,
+          user: u,
+          pharmacy: p,
+          medicine: m,
+          bill: localDB.bills.find(b => b.reservation_id === r.id),
+        };
+      });
 
     if (isLiveSupabaseConfigured()) {
       try {
@@ -2337,13 +2591,23 @@ export const api = {
           .order('created_at', { ascending: false });
 
         if (data && !error && data.length > 0) {
-          const remoteItems: Reservation[] = data.map((r: any) => ({
-            ...r,
-            user: localDB.profiles.find(p => p.id === r.user_id),
-            pharmacy: localDB.pharmacies.find(p => p.id === r.pharmacy_id),
-            medicine: localDB.medicines.find(m => m.id === r.medicine_id) || PREDEFINED_MEDICINES.find(m => m.id === r.medicine_id),
-            bill: localDB.bills.find(b => b.reservation_id === r.id),
-          }));
+          const remoteItems: Reservation[] = data.map((r: any) => {
+            const u = localDB.profiles.find(p => p.id === r.user_id)
+              || (r.customer_name ? { id: r.user_id, full_name: r.customer_name, mobile_number: r.customer_phone || '', email: r.customer_email || '' } as Profile : undefined);
+            const p = localDB.pharmacies.find(ph => ph.id === r.pharmacy_id)
+              || (r.pharmacy_name ? { id: r.pharmacy_id, name: r.pharmacy_name, address: r.pharmacy_address || '', mobile_number: r.pharmacy_phone || '' } as Pharmacy : undefined);
+            const m = localDB.medicines.find(med => med.id === r.medicine_id)
+              || PREDEFINED_MEDICINES.find(med => med.id === r.medicine_id)
+              || (r.medicine_name ? { id: r.medicine_id, display_name: r.medicine_name, category: r.medicine_category || 'General', strength_form: r.medicine_strength || '' } as Medicine : undefined);
+
+            return {
+              ...r,
+              user: u,
+              pharmacy: p,
+              medicine: m,
+              bill: localDB.bills.find(b => b.reservation_id === r.id),
+            };
+          });
 
           const remoteIds = new Set(remoteItems.map(item => item.id));
           const merged = [...remoteItems, ...localItems.filter(l => !remoteIds.has(l.id))];
@@ -2362,13 +2626,23 @@ export const api = {
 
     const localItems = localDB.reservations
       .filter(r => r.pharmacy_id === pharmacyId)
-      .map(r => ({
-        ...r,
-        user: localDB.profiles.find(p => p.id === r.user_id),
-        pharmacy: localDB.pharmacies.find(p => p.id === r.pharmacy_id),
-        medicine: localDB.medicines.find(m => m.id === r.medicine_id) || PREDEFINED_MEDICINES.find(m => m.id === r.medicine_id),
-        bill: localDB.bills.find(b => b.reservation_id === r.id),
-      }));
+      .map(r => {
+        const u = localDB.profiles.find(p => p.id === r.user_id)
+          || (r.customer_name ? { id: r.user_id, full_name: r.customer_name, mobile_number: r.customer_phone || '', email: r.customer_email || '' } as Profile : undefined);
+        const p = localDB.pharmacies.find(ph => ph.id === r.pharmacy_id)
+          || (r.pharmacy_name ? { id: r.pharmacy_id, name: r.pharmacy_name, address: r.pharmacy_address || '', mobile_number: r.pharmacy_phone || '' } as Pharmacy : undefined);
+        const m = localDB.medicines.find(med => med.id === r.medicine_id)
+          || PREDEFINED_MEDICINES.find(med => med.id === r.medicine_id)
+          || (r.medicine_name ? { id: r.medicine_id, display_name: r.medicine_name, category: r.medicine_category || 'General', strength_form: r.medicine_strength || '' } as Medicine : undefined);
+
+        return {
+          ...r,
+          user: u,
+          pharmacy: p,
+          medicine: m,
+          bill: localDB.bills.find(b => b.reservation_id === r.id),
+        };
+      });
 
     if (isLiveSupabaseConfigured()) {
       try {
@@ -2379,13 +2653,23 @@ export const api = {
           .order('created_at', { ascending: false });
 
         if (data && !error && data.length > 0) {
-          const remoteItems: Reservation[] = data.map((r: any) => ({
-            ...r,
-            user: localDB.profiles.find(p => p.id === r.user_id),
-            pharmacy: localDB.pharmacies.find(p => p.id === r.pharmacy_id),
-            medicine: localDB.medicines.find(m => m.id === r.medicine_id) || PREDEFINED_MEDICINES.find(m => m.id === r.medicine_id),
-            bill: localDB.bills.find(b => b.reservation_id === r.id),
-          }));
+          const remoteItems: Reservation[] = data.map((r: any) => {
+            const u = localDB.profiles.find(p => p.id === r.user_id)
+              || (r.customer_name ? { id: r.user_id, full_name: r.customer_name, mobile_number: r.customer_phone || '', email: r.customer_email || '' } as Profile : undefined);
+            const p = localDB.pharmacies.find(ph => ph.id === r.pharmacy_id)
+              || (r.pharmacy_name ? { id: r.pharmacy_id, name: r.pharmacy_name, address: r.pharmacy_address || '', mobile_number: r.pharmacy_phone || '' } as Pharmacy : undefined);
+            const m = localDB.medicines.find(med => med.id === r.medicine_id)
+              || PREDEFINED_MEDICINES.find(med => med.id === r.medicine_id)
+              || (r.medicine_name ? { id: r.medicine_id, display_name: r.medicine_name, category: r.medicine_category || 'General', strength_form: r.medicine_strength || '' } as Medicine : undefined);
+
+            return {
+              ...r,
+              user: u,
+              pharmacy: p,
+              medicine: m,
+              bill: localDB.bills.find(b => b.reservation_id === r.id),
+            };
+          });
 
           const remoteIds = new Set(remoteItems.map(item => item.id));
           const merged = [...remoteItems, ...localItems.filter(l => !remoteIds.has(l.id))];
@@ -2497,6 +2781,24 @@ export const api = {
       alert.read_status = true;
       localDB.save();
     }
+  },
+
+  async getAdminAlerts(): Promise<Alert[]> {
+    await this.checkAndExpireReservations();
+    const adminAlerts = localDB.alerts.filter(a => 
+      a.user_id === 'admin' || 
+      a.type === 'PHARMACY_PENDING_APPROVAL' || 
+      a.type.startsWith('ADMIN_')
+    );
+    return adminAlerts.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  },
+
+  performSafeDatabaseCleanup(): { backedUp: boolean; backupKey: string } {
+    return localDB.performSafeCleanup();
+  },
+
+  backupDatabase(): string {
+    return localDB.backupDatabase();
   },
 
   resetEmptyDatabase(): void {

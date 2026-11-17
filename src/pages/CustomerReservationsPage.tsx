@@ -6,6 +6,7 @@ import { Reservation, Bill, Alert } from '../types/database';
 import { StatusBadge } from '../components/StatusBadge';
 import { InvoiceModal } from '../components/InvoiceModal';
 import { EditCustomerProfileModal } from '../components/EditCustomerProfileModal';
+import { ReservationDetailsModal } from '../components/ReservationDetailsModal';
 import { 
   ShoppingBag, 
   Clock, 
@@ -37,6 +38,7 @@ export const CustomerReservationsPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'reservations' | 'notifications' | 'bills'>('reservations');
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [selectedBill, setSelectedBill] = useState<Bill | null>(null);
+  const [selectedResForDetails, setSelectedResForDetails] = useState<Reservation | null>(null);
   const [isEditProfileOpen, setIsEditProfileOpen] = useState<boolean>(false);
   const [currentTime, setCurrentTime] = useState<number>(Date.now());
 
@@ -416,11 +418,20 @@ export const CustomerReservationsPage: React.FC = () => {
                       )}
                     </div>
 
-                    <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 shrink-0 self-stretch sm:self-center">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedResForDetails(res)}
+                        className="flex items-center justify-center gap-1.5 px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold rounded-xl border border-slate-300 transition-colors shadow-xs"
+                      >
+                        <FileText className="w-3.5 h-3.5 text-slate-600" />
+                        View Reservation Details
+                      </button>
+
                       {res.status === 'COMPLETED' ? (
                         <button
                           onClick={() => handleViewReceipt(res.id)}
-                          className="flex items-center gap-1.5 px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold rounded-xl transition-colors shadow-sm"
+                          className="flex items-center justify-center gap-1.5 px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold rounded-xl transition-colors shadow-sm"
                         >
                           <Printer className="w-3.5 h-3.5" />
                           View Receipt
@@ -428,13 +439,13 @@ export const CustomerReservationsPage: React.FC = () => {
                       ) : isActive ? (
                         <button
                           onClick={() => handleCancelReservation(res.id)}
-                          className="flex items-center gap-1 px-3 py-1.5 border border-rose-300 text-rose-700 hover:bg-rose-50 text-xs font-semibold rounded-xl transition-colors"
+                          className="flex items-center justify-center gap-1 px-3 py-2 border border-rose-300 text-rose-700 hover:bg-rose-50 text-xs font-semibold rounded-xl transition-colors"
                         >
                           <Ban className="w-3.5 h-3.5" />
                           Cancel
                         </button>
                       ) : res.status === 'EXPIRED' ? (
-                        <span className="text-[11px] text-slate-400 font-medium italic">
+                        <span className="text-[11px] text-slate-400 font-medium italic text-center py-1">
                           Expired
                         </span>
                       ) : null}
@@ -580,6 +591,14 @@ export const CustomerReservationsPage: React.FC = () => {
         isOpen={Boolean(selectedBill)}
         onClose={() => setSelectedBill(null)}
         bill={selectedBill}
+      />
+
+      {/* Reservation Details Modal (Requirement 3) */}
+      <ReservationDetailsModal
+        isOpen={Boolean(selectedResForDetails)}
+        onClose={() => setSelectedResForDetails(null)}
+        reservation={selectedResForDetails}
+        currentUser={user}
       />
 
       {/* Edit Customer Profile Modal */}

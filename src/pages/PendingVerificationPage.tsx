@@ -42,48 +42,93 @@ export const PendingVerificationPage: React.FC = () => {
     <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
       <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
         {/* Verification Status Banner */}
-        <div className="p-6 sm:p-8 bg-amber-500/10 border-b border-amber-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-          <div className="flex items-start gap-4">
-            <div className="w-12 h-12 rounded-2xl bg-amber-100 flex items-center justify-center shrink-0 text-amber-700">
-              <Clock className="w-6 h-6" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h1 className="text-xl sm:text-2xl font-black text-slate-900">
-                  Pharmacy Verification in Progress
-                </h1>
-                <StatusBadge type="verification" status={currentPharm?.verification_status || 'PENDING_VERIFICATION'} />
+        {currentPharm?.verification_status === 'REJECTED' ? (
+          <div className="p-6 sm:p-8 bg-rose-50 border-b border-rose-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div className="flex items-start gap-4">
+              <div className="w-12 h-12 rounded-2xl bg-rose-100 flex items-center justify-center shrink-0 text-rose-700 font-bold">
+                <ShieldAlert className="w-6 h-6" />
               </div>
-              <p className="text-xs sm:text-sm text-slate-600 mt-1">
-                Your pharmacy registration has been submitted and is currently awaiting administrator review.
-              </p>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h1 className="text-xl sm:text-2xl font-black text-rose-950">
+                    Pharmacy Registration Rejected
+                  </h1>
+                  <StatusBadge type="verification" status="REJECTED" />
+                </div>
+                <p className="text-xs sm:text-sm text-rose-800 mt-1">
+                  Your pharmacy application was reviewed by the administrator and rejected with the reason described below.
+                </p>
+              </div>
             </div>
-          </div>
 
-          <button
-            onClick={checkStatus}
-            disabled={isRefreshing}
-            className="flex items-center gap-1.5 px-4 py-2 bg-white border border-amber-300 rounded-xl text-xs font-bold text-amber-900 hover:bg-amber-50 shadow-sm transition-all"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
-            Refresh Status
-          </button>
-        </div>
+            <button
+              onClick={checkStatus}
+              disabled={isRefreshing}
+              className="flex items-center gap-1.5 px-4 py-2 bg-white border border-rose-300 rounded-xl text-xs font-bold text-rose-900 hover:bg-rose-50 shadow-sm transition-all"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
+              Refresh Status
+            </button>
+          </div>
+        ) : (
+          <div className="p-6 sm:p-8 bg-amber-500/10 border-b border-amber-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div className="flex items-start gap-4">
+              <div className="w-12 h-12 rounded-2xl bg-amber-100 flex items-center justify-center shrink-0 text-amber-700">
+                <Clock className="w-6 h-6" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h1 className="text-xl sm:text-2xl font-black text-slate-900">
+                    Pharmacy Verification in Progress
+                  </h1>
+                  <StatusBadge type="verification" status={currentPharm?.verification_status || 'PENDING_VERIFICATION'} />
+                </div>
+                <p className="text-xs sm:text-sm text-slate-600 mt-1">
+                  Your pharmacy registration has been submitted and is currently awaiting administrator review.
+                </p>
+              </div>
+            </div>
+
+            <button
+              onClick={checkStatus}
+              disabled={isRefreshing}
+              className="flex items-center gap-1.5 px-4 py-2 bg-white border border-amber-300 rounded-xl text-xs font-bold text-amber-900 hover:bg-amber-50 shadow-sm transition-all"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
+              Refresh Status
+            </button>
+          </div>
+        )}
 
         {/* Operational Notice */}
         <div className="p-6 sm:p-8 space-y-6">
-          <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl text-xs text-slate-700 space-y-2">
-            <h4 className="font-bold text-slate-900 text-sm flex items-center gap-1.5">
-              <ShieldAlert className="w-4 h-4 text-emerald-700" />
-              MediStock Regulatory Safety Safeguards Active:
-            </h4>
-            <p className="leading-relaxed">
-              • Your inventory cannot be published or edited until administrator approval is granted.<br />
-              • Your pharmacy will not appear in customer public search results.<br />
-              • Customers cannot place medicine reservations for your store until licence verification is completed.<br />
-              • You may log in at any time to monitor your account status.
-            </p>
-          </div>
+          {currentPharm?.verification_status === 'REJECTED' ? (
+            <div className="p-5 bg-rose-50 border-2 border-rose-300 rounded-2xl text-xs text-rose-950 space-y-2.5">
+              <h4 className="font-extrabold text-sm flex items-center gap-1.5 text-rose-900">
+                <ShieldAlert className="w-4 h-4 text-rose-700" />
+                Administrator Rejection Reason:
+              </h4>
+              <p className="p-3 bg-white rounded-xl border border-rose-200 font-bold text-rose-900 text-xs">
+                "{currentPharm.rejection_reason || 'Licence documents or verification requirements could not be validated. Please contact the administrator with valid credentials.'}"
+              </p>
+              <p className="leading-relaxed text-rose-800">
+                Your pharmacy stock and listings remain inactive while in rejected status. If you believe this was an error or you have updated regulatory documents, please contact support or re-apply.
+              </p>
+            </div>
+          ) : (
+            <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl text-xs text-slate-700 space-y-2">
+              <h4 className="font-bold text-slate-900 text-sm flex items-center gap-1.5">
+                <ShieldAlert className="w-4 h-4 text-emerald-700" />
+                MediStock Regulatory Safety Safeguards Active:
+              </h4>
+              <p className="leading-relaxed">
+                • Your inventory cannot be published or edited until administrator approval is granted.<br />
+                • Your pharmacy will not appear in customer public search results.<br />
+                • Customers cannot place medicine reservations for your store until licence verification is completed.<br />
+                • You may log in at any time to monitor your account status.
+              </p>
+            </div>
+          )}
 
           {/* Submitted Pharmacy Profile Details */}
           <div>
