@@ -156,14 +156,6 @@ export const AdminDashboardPage: React.FC = () => {
   const [isRejecting, setIsRejecting] = useState<boolean>(false);
   const [rejectError, setRejectError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!isAdmin) {
-      navigate('/login');
-      return;
-    }
-    loadAdminData();
-  }, [isAdmin]);
-
   const loadAdminData = async () => {
     setIsLoading(true);
     try {
@@ -194,6 +186,14 @@ export const AdminDashboardPage: React.FC = () => {
       setIsLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (!isAdmin) {
+      navigate('/login');
+      return;
+    }
+    loadAdminData();
+  }, [isAdmin]);
 
   const handleApprovePharmacy = async (pharmacyId: string) => {
     if (!confirm('Approve this pharmacy registration? This will enable public customer visibility.')) return;

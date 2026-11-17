@@ -154,6 +154,29 @@ class LocalDatabaseStore {
   }
 
   private loadFromStorage() {
+    // FRESH DATABASE BOOTSTRAP:
+    // Ensure all previous operational and account data is 100% purged so the user starts with zero records.
+    const FRESH_VERSION = 'medistock_zero_data_v6';
+    if (typeof localStorage !== 'undefined' && localStorage.getItem(FRESH_VERSION) !== 'true') {
+      try {
+        localStorage.clear();
+      } catch (_) {}
+      this.profiles = [];
+      this.pharmacies = [];
+      this.inventory = [];
+      this.reservations = [];
+      this.bills = [];
+      this.auditLogs = [];
+      this.alerts = [];
+      this.passwords = {};
+      this.medicines = [...PREDEFINED_MEDICINES];
+      this.save();
+      try {
+        localStorage.setItem(FRESH_VERSION, 'true');
+      } catch (_) {}
+      return;
+    }
+
     try {
       const data = localStorage.getItem('medistock_db_state');
       if (data) {
@@ -187,13 +210,6 @@ class LocalDatabaseStore {
 
     if (!this.pharmacies) {
       this.pharmacies = [];
-    }
-
-    // COMPLETE DATABASE CLEANUP:
-    // When the application starts fresh or clean reset is triggered, ensure all operational and account data is 100% clean.
-    if (typeof localStorage !== 'undefined' && localStorage.getItem('medistock_clean_database_reset_v4') !== 'true') {
-      this.resetToCleanState();
-      localStorage.setItem('medistock_clean_database_reset_v4', 'true');
     }
   }
 
@@ -2457,7 +2473,8 @@ export const api = {
 
     const now = new Date().toISOString();
 
-    const targetPharm = localDB.pharmacies[idx] || (data.pharmacyId ? localDB.pharmacies.find(p => p.id === data.pharmacyId) : null);
+    const idx = localDB.pharmacies.findIndex(p => p.id === data.pharmacyId);
+    const targetPharm = (idx !== -1 ? localDB.pharmacies[idx] : null) || (data.pharmacyId ? localDB.pharmacies.find(p => p.id === data.pharmacyId) : null);
     let pharmacyStatusAlert: Alert | null = null;
 
     if (data.status === 'APPROVED') {
@@ -2527,11 +2544,11 @@ export const api = {
       }
     }
 
-    const idx = localDB.pharmacies.findIndex(p => p.id === data.pharmacyId);
-    if (idx === -1) throw new Error('Pharmacy not found.');
+    const localIdx = idx !== -1 ? idx : localDB.pharmacies.findIndex(p => p.id === data.pharmacyId);
+    if (localIdx === -1) throw new Error('Pharmacy not found.');
 
-    localDB.pharmacies[idx] = {
-      ...localDB.pharmacies[idx],
+    localDB.pharmacies[localIdx] = {
+      ...localDB.pharmacies[localIdx],
       verification_status: data.status,
       rejection_reason: data.status === 'REJECTED' ? data.rejectionReason?.trim() : null,
       verified_by: data.adminId || null,
@@ -2550,7 +2567,7 @@ export const api = {
     });
 
     localDB.save();
-    return { success: true, pharmacy: localDB.pharmacies[idx] };
+    return { success: true, pharmacy: localDB.pharmacies[localIdx] };
   },
 
   /**

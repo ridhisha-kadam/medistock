@@ -3,7 +3,7 @@ import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { api, isValidEmail, isValidPassword } from '../services/api';
 import { Modal } from '../components/Modal';
-import { Eye, EyeOff, Loader2, AlertCircle, CheckCircle2, ShieldCheck, KeyRound } from 'lucide-react';
+import { Eye, EyeOff, Loader2, AlertCircle, CheckCircle2, ShieldCheck, KeyRound, Trash2 } from 'lucide-react';
 
 export const LoginPage: React.FC = () => {
   const [email, setEmail] = useState('');
