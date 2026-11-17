@@ -193,9 +193,9 @@ class LocalDatabaseStore {
     // REQUIREMENT 4: Safe Database Cleanup
     // Execute safe cleanup: Keeps all pharmacy names and accounts, genuine customer accounts and login credentials.
     // Clears inventory (initially empty) and reservations (empty list).
-    if (typeof localStorage !== 'undefined' && localStorage.getItem('medistock_safe_cleanup_v2_applied') !== 'true') {
+    if (typeof localStorage !== 'undefined' && localStorage.getItem('medistock_safe_cleanup_v3_applied') !== 'true') {
       this.performSafeCleanup();
-      localStorage.setItem('medistock_safe_cleanup_v2_applied', 'true');
+      localStorage.setItem('medistock_safe_cleanup_v3_applied', 'true');
     }
   }
 
@@ -277,66 +277,8 @@ class LocalDatabaseStore {
 
     this.pharmacies = defaultPharmacies;
 
-    // If safe cleanup has already set the inventory to empty, do not re-populate sample inventory!
-    if (typeof localStorage !== 'undefined' && (localStorage.getItem('medistock_cleaned_safe') === 'true' || localStorage.getItem('medistock_safe_cleanup_v2_applied') === 'true')) {
-      this.inventory = [];
-      this.save();
-      return;
-    }
-
-    // Filter key common medicines for pharmacy stock (BP, Diabetes, Fever, Pain, Heart, etc.)
-    const keyMedicines = this.medicines.filter(m => {
-      const g = m.generic_name.toLowerCase();
-      return (
-        g.includes('amlodipine') ||
-        g.includes('telmisartan') ||
-        g.includes('losartan') ||
-        g.includes('atenolol') ||
-        g.includes('enalapril') ||
-        g.includes('metformin') ||
-        g.includes('glimepiride') ||
-        g.includes('paracetamol') ||
-        g.includes('ibuprofen') ||
-        g.includes('amoxicillin') ||
-        g.includes('azithromycin') ||
-        g.includes('pantoprazole') ||
-        g.includes('cetirizine') ||
-        g.includes('salbutamol') ||
-        g.includes('atorvastatin')
-      );
-    });
-
-    const invList: InventoryItem[] = [];
-    let invCounter = 1;
-
-    for (const pharm of defaultPharmacies) {
-      for (const med of keyMedicines) {
-        const qty = (pharm.id === 'pharm-dharwad-1') ? 45 : (pharm.id === 'pharm-dharwad-2') ? 25 : 60;
-        const price = med.generic_name.toLowerCase().includes('telmisartan') ? 48.00
-          : med.generic_name.toLowerCase().includes('amlodipine') ? 28.50
-          : med.generic_name.toLowerCase().includes('losartan') ? 35.00
-          : med.generic_name.toLowerCase().includes('atenolol') ? 22.00
-          : med.generic_name.toLowerCase().includes('metformin') ? 32.00
-          : med.generic_name.toLowerCase().includes('paracetamol') ? 18.00
-          : 45.00;
-
-        invList.push({
-          id: `inv-${invCounter++}`,
-          pharmacy_id: pharm.id,
-          medicine_id: med.id,
-          quantity: qty,
-          price: price,
-          status: qty > 10 ? 'AVAILABLE' : (qty > 0 ? 'LOW_STOCK' : 'OUT_OF_STOCK'),
-          expiry_date: '2027-12-31',
-          created_at: new Date(Date.now() - 3600000).toISOString(),
-          updated_at: new Date(Date.now() - 1800000).toISOString(),
-          medicine: med,
-          pharmacy: pharm,
-        });
-      }
-    }
-
-    this.inventory = invList;
+    // Operational stock is cleaned - start with clean empty inventory (0 stock) so pharmacies add their real stock
+    this.inventory = [];
     this.save();
   }
 
@@ -418,7 +360,7 @@ class LocalDatabaseStore {
 
     if (typeof localStorage !== 'undefined') {
       localStorage.setItem('medistock_cleaned_safe', 'true');
-      localStorage.setItem('medistock_safe_cleanup_v2_applied', 'true');
+      localStorage.setItem('medistock_safe_cleanup_v3_applied', 'true');
     }
     this.save();
 
