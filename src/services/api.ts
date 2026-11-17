@@ -929,8 +929,17 @@ export const api = {
         const { error: insErr } = await supabase.from('pharmacies').insert([newPharmacy]);
         if (!insErr) {
           try {
-            await supabase.from('alerts').insert([adminAlert]);
-          } catch (_) {}
+            await supabase.from('alerts').insert([{
+              id: adminAlert.id,
+              pharmacy_id: newPharmacy.id,
+              type: adminAlert.type,
+              message: adminAlert.message,
+              read_status: false,
+              created_at: adminAlert.created_at,
+            }]);
+          } catch (e) {
+            console.warn('Supabase register alert insert error:', e);
+          }
           await supabase.from('audit_logs').insert([{
             id: generateId(),
             actor_user_id: data.ownerUserId,
@@ -1906,8 +1915,27 @@ export const api = {
           updated_at: newRes.updated_at
         }]);
         try {
-          await supabase.from('alerts').insert([customerAlert, pharmacyAlert]);
-        } catch (_) {}
+          await supabase.from('alerts').insert([
+            {
+              id: customerAlert.id,
+              pharmacy_id: data.pharmacyId,
+              type: customerAlert.type,
+              message: `[FOR_USER:${data.userId}] ${customerAlert.message}`,
+              read_status: false,
+              created_at: customerAlert.created_at,
+            },
+            {
+              id: pharmacyAlert.id,
+              pharmacy_id: data.pharmacyId,
+              type: pharmacyAlert.type,
+              message: pharmacyAlert.message,
+              read_status: false,
+              created_at: pharmacyAlert.created_at,
+            }
+          ]);
+        } catch (e) {
+          console.warn('Supabase createReservation alerts sync error:', e);
+        }
       } catch (e) {
         console.warn('Supabase createReservation sync:', e);
       }
@@ -2233,8 +2261,17 @@ export const api = {
         }).eq('id', id);
         if (customerStatusAlert) {
           try {
-            await supabase.from('alerts').insert([customerStatusAlert]);
-          } catch (_) {}
+            await supabase.from('alerts').insert([{
+              id: customerStatusAlert.id,
+              pharmacy_id: res.pharmacy_id,
+              type: customerStatusAlert.type,
+              message: `[FOR_USER:${res.user_id}] ${customerStatusAlert.message}`,
+              read_status: false,
+              created_at: now,
+            }]);
+          } catch (e) {
+            console.warn('Supabase updateReservationStatus alert error:', e);
+          }
         }
         return { success: true, reservation: { ...res, status: newStatus }, bill: generatedBill };
       } catch (e) {
@@ -2553,19 +2590,39 @@ export const api = {
 
         if (pharmacyStatusAlert) {
           try {
-            await supabase.from('alerts').insert([pharmacyStatusAlert]);
-          } catch (_) {}
+            await supabase.from('alerts').insert([{
+              id: pharmacyStatusAlert.id,
+              pharmacy_id: data.pharmacyId,
+              type: pharmacyStatusAlert.type,
+              message: pharmacyStatusAlert.message,
+              read_status: false,
+              created_at: now,
+            }]);
+          } catch (e) {
+            console.warn('Supabase verifyPharmacy alert insert error:', e);
+          }
         }
 
         if (updated && !error) {
-          await supabase.from('audit_logs').insert([{
-            id: generateId(),
-            actor_user_id: data.adminId,
-            action: 'ADMIN_PHARMACY_VERIFICATION',
-            entity_type: 'PHARMACIES',
-            entity_id: data.pharmacyId,
-            details: { newStatus: data.status, reason: data.rejectionReason },
-          }]);
+          const pIdx = localDB.pharmacies.findIndex(p => p.id === data.pharmacyId);
+          if (pIdx !== -1) {
+            localDB.pharmacies[pIdx] = updated;
+          } else {
+            localDB.pharmacies.push(updated);
+          }
+          localDB.save();
+
+          try {
+            await supabase.from('audit_logs').insert([{
+              id: generateId(),
+              actor_user_id: data.adminId,
+              action: 'ADMIN_PHARMACY_VERIFICATION',
+              entity_type: 'PHARMACIES',
+              entity_id: data.pharmacyId,
+              details: { newStatus: data.status, reason: data.rejectionReason },
+            }]);
+          } catch (_) {}
+
           return { success: true, pharmacy: updated };
         }
       } catch (e) {
@@ -2681,6 +2738,12 @@ export const api = {
           .order('created_at', { ascending: false });
 
         if (data && !error && data.length > 0) {
+          if (localDB.pharmacies.length === 0) {
+            try {
+              const { data: pData } = await supabase.from('pharmacies').select('*');
+              if (pData && pData.length > 0) localDB.pharmacies = pData;
+            } catch (_) {}
+          }
           const remoteItems: Reservation[] = data.map((r: any) => {
             const u = localDB.profiles.find(p => p.id === r.user_id)
               || (r.customer_name ? { id: r.user_id, full_name: r.customer_name, mobile_number: r.customer_phone || '', email: r.customer_email || '' } as Profile : undefined);
@@ -2713,6 +2776,13 @@ export const api = {
 
   async getPharmacyReservations(pharmacyId: string): Promise<Reservation[]> {
     await this.checkAndExpireReservations();
+
+    if (isLiveSupabaseConfigured() && localDB.profiles.length === 0) {
+      try {
+        const { data: uData } = await supabase.from('profiles').select('*');
+        if (uData && uData.length > 0) localDB.profiles = uData;
+      } catch (_) {}
+    }
 
     const localItems = localDB.reservations
       .filter(r => r.pharmacy_id === pharmacyId)
@@ -2815,72 +2885,112 @@ export const api = {
 
   async getPharmacyAlerts(pharmacyId: string): Promise<Alert[]> {
     await this.checkAndExpireReservations();
+    let cloudAlerts: Alert[] = [];
     if (isLiveSupabaseConfigured()) {
       try {
-        const { data } = await supabase.from('alerts').select('*').eq('pharmacy_id', pharmacyId);
-        if (data) return data;
+        const { data, error } = await supabase.from('alerts').select('*').eq('pharmacy_id', pharmacyId);
+        if (data && !error) {
+          cloudAlerts = data.map((d: any) => ({
+            ...d,
+            message: d.message ? d.message.replace(/^\[FOR_USER:[^\]]+\]\s*/, '') : d.message,
+          }));
+        }
       } catch (e) {
         console.warn('Supabase getPharmacyAlerts fallback:', e);
       }
     }
-    return localDB.alerts.filter(a => a.pharmacy_id === pharmacyId);
+    const localItems = localDB.alerts.filter(a => a.pharmacy_id === pharmacyId);
+    const cloudIds = new Set(cloudAlerts.map(a => a.id));
+    const merged = [...cloudAlerts, ...localItems.filter(l => !cloudIds.has(l.id))];
+    return merged.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   },
 
   async getUserAlerts(userId: string): Promise<Alert[]> {
     await this.checkAndExpireReservations();
     const localItems = localDB.alerts.filter(a => a.user_id === userId);
+    let cloudAlerts: Alert[] = [];
     if (isLiveSupabaseConfigured()) {
       try {
-        const { data, error } = await supabase.from('alerts').select('*').eq('user_id', userId);
-        if (data && !error && data.length > 0) {
-          const ids = new Set(data.map((d: any) => d.id));
-          return [...data, ...localItems.filter(l => !ids.has(l.id))].sort(
-            (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-          );
+        const { data, error } = await supabase
+          .from('alerts')
+          .select('*')
+          .like('message', `%[FOR_USER:${userId}]%`);
+        if (data && !error) {
+          cloudAlerts = data.map((d: any) => ({
+            ...d,
+            user_id: userId,
+            message: d.message ? d.message.replace(`[FOR_USER:${userId}] `, '').replace(`[FOR_USER:${userId}]`, '') : d.message,
+          }));
         }
       } catch (e) {
         console.warn('Supabase getUserAlerts fallback:', e);
       }
     }
-    return localItems.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    const existingIds = new Set(cloudAlerts.map(a => a.id));
+    const merged = [...cloudAlerts, ...localItems.filter(l => !existingIds.has(l.id))];
+    return merged.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   },
 
   async markAllUserAlertsAsRead(userId: string): Promise<void> {
     for (const a of localDB.alerts) {
-      if (a.user_id === userId) a.read_status = true;
+      if (a.user_id === userId || (userId === 'admin' && (a.user_id === 'admin' || a.type === 'PHARMACY_PENDING_APPROVAL'))) {
+        a.read_status = true;
+      }
     }
     localDB.save();
     if (isLiveSupabaseConfigured()) {
       try {
-        await supabase.from('alerts').update({ read_status: true }).eq('user_id', userId);
+        if (userId === 'admin') {
+          await supabase.from('alerts').update({ read_status: true }).or('type.eq.PHARMACY_PENDING_APPROVAL,type.ilike.ADMIN_%');
+        } else {
+          await supabase.from('alerts').update({ read_status: true }).like('message', `%[FOR_USER:${userId}]%`);
+        }
       } catch (_) {}
     }
   },
 
   async markAlertAsRead(alertId: string): Promise<void> {
-    if (isLiveSupabaseConfigured()) {
-      try {
-        await supabase.from('alerts').update({ read_status: true }).eq('id', alertId);
-        return;
-      } catch (e) {
-        console.warn('Supabase markAlertAsRead fallback:', e);
-      }
-    }
     const alert = localDB.alerts.find(a => a.id === alertId);
     if (alert) {
       alert.read_status = true;
       localDB.save();
     }
+    if (isLiveSupabaseConfigured()) {
+      try {
+        await supabase.from('alerts').update({ read_status: true }).eq('id', alertId);
+      } catch (e) {
+        console.warn('Supabase markAlertAsRead fallback:', e);
+      }
+    }
   },
 
   async getAdminAlerts(): Promise<Alert[]> {
     await this.checkAndExpireReservations();
-    const adminAlerts = localDB.alerts.filter(a => 
+    let cloudAlerts: Alert[] = [];
+    if (isLiveSupabaseConfigured()) {
+      try {
+        const { data, error } = await supabase
+          .from('alerts')
+          .select('*')
+          .or('type.eq.PHARMACY_PENDING_APPROVAL,type.ilike.ADMIN_%');
+        if (data && !error) {
+          cloudAlerts = data.map((a: any) => ({
+            ...a,
+            user_id: 'admin',
+          }));
+        }
+      } catch (e) {
+        console.warn('Supabase getAdminAlerts fallback:', e);
+      }
+    }
+    const localAlerts = localDB.alerts.filter(a => 
       a.user_id === 'admin' || 
       a.type === 'PHARMACY_PENDING_APPROVAL' || 
       a.type.startsWith('ADMIN_')
     );
-    return adminAlerts.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    const existingIds = new Set(cloudAlerts.map(a => a.id));
+    const merged = [...cloudAlerts, ...localAlerts.filter(l => !existingIds.has(l.id))];
+    return merged.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   },
 
   performSafeDatabaseCleanup(): { backedUp: boolean; backupKey: string } {
