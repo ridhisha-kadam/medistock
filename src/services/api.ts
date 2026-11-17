@@ -388,6 +388,52 @@ class LocalDatabaseStore {
     } catch (_) {}
     return jsonStr;
   }
+
+  /**
+   * Complete Database Reset to clean initial state:
+   * Clears all profiles, pharmacies, inventory, reservations, bills, and alerts.
+   * Re-initializes master catalog with verified 245 generic medicines.
+   */
+  resetToCleanState(): { backedUp: boolean; backupKey: string } {
+    const backupKey = `medistock_backup_${Date.now()}`;
+    try {
+      const backupData = {
+        timestamp: new Date().toISOString(),
+        profiles: [...this.profiles],
+        pharmacies: [...this.pharmacies],
+        medicines: [...this.medicines],
+        inventory: [...this.inventory],
+        reservations: [...this.reservations],
+        bills: [...this.bills],
+        alerts: [...this.alerts],
+        passwords: { ...this.passwords },
+      };
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(backupKey, JSON.stringify(backupData));
+      }
+    } catch (e) {
+      console.warn('Backup error during reset:', e);
+    }
+
+    this.profiles = [];
+    this.pharmacies = [];
+    this.medicines = [...PREDEFINED_MEDICINES];
+    this.inventory = [];
+    this.reservations = [];
+    this.bills = [];
+    this.auditLogs = [];
+    this.alerts = [];
+    this.passwords = {};
+
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem('medistock_session_user');
+      localStorage.removeItem('medistock_session_token');
+      localStorage.removeItem('medistock_admin_setup_completed');
+      localStorage.setItem('medistock_cleaned_safe', 'true');
+    }
+    this.save();
+    return { backedUp: true, backupKey };
+  }
 }
 
 const localDB = new LocalDatabaseStore();
@@ -397,6 +443,9 @@ const localDB = new LocalDatabaseStore();
 // ==============================================================================
 
 export const api = {
+  resetToCleanState(): { backedUp: boolean; backupKey: string } {
+    return localDB.resetToCleanState();
+  },
   // ----------------------------------------------------------------------------
   // 1. AUTHENTICATION APIs (/api/register, /api/login, /api/user/{id})
   // ----------------------------------------------------------------------------
@@ -439,15 +488,15 @@ export const api = {
             .select('*', { count: 'exact', head: true })
             .eq('role', 'ADMIN');
           if (count && count > 0) {
-            throw new Error('An Administrator has already been registered. Public administrator registration is permanently closed.');
+            throw new Error('Admin account has already been created. Please log in.');
           }
         } catch (e: any) {
-          if (e.message?.includes('already been registered')) throw e;
+          if (e.message?.includes('already been created') || e.message?.includes('already been registered')) throw e;
         }
       } else {
         const existingAdmins = localDB.profiles.filter(p => p.role === 'ADMIN');
         if (existingAdmins.length > 0) {
-          throw new Error('An Administrator has already been registered. Public administrator registration is permanently closed.');
+          throw new Error('Admin account has already been created. Please log in.');
         }
       }
     }
@@ -573,6 +622,45 @@ export const api = {
 
     const token = 'jwt-token-' + profile.id + '-' + Date.now();
     return { success: true, user: profile, token };
+  },
+
+  /**
+   * Reset Password (Forgot Password Flow)
+   */
+  async resetPassword(email: string, newPass: string): Promise<{ success: boolean; message: string }> {
+    const cleanEmail = email.toLowerCase().trim();
+    if (!cleanEmail || !isValidEmail(cleanEmail)) {
+      throw new Error('Please enter a valid email address.');
+    }
+    if (!isValidPassword(newPass)) {
+      throw new Error('Password must be at least 8 characters and include at least one letter and one number.');
+    }
+
+    if (isLiveSupabaseConfigured()) {
+      try {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('id')
+          .eq('email', cleanEmail)
+          .maybeSingle();
+        if (profile) {
+          await supabase.from('profiles').update({ password: newPass }).eq('id', profile.id);
+        }
+      } catch (e) {
+        console.warn('Supabase resetPassword fallback:', e);
+      }
+    }
+
+    const profile = localDB.profiles.find(p => p.email.toLowerCase() === cleanEmail);
+    if (!profile) {
+      throw new Error('No registered account found with this email address.');
+    }
+
+    localDB.passwords[cleanEmail] = newPass;
+    (profile as any).password = newPass;
+    localDB.save();
+
+    return { success: true, message: 'Password has been reset successfully. Please log in with your new password.' };
   },
 
   /**

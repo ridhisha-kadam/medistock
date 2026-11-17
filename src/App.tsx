@@ -16,6 +16,7 @@ import { PharmacyDashboardPage } from './pages/PharmacyDashboardPage';
 import { AdminDashboardPage } from './pages/AdminDashboardPage';
 import { CustomerReservationsPage } from './pages/CustomerReservationsPage';
 import { MedicineCatalogPage } from './pages/MedicineCatalogPage';
+import { AdminSetupPage } from './pages/AdminSetupPage';
 
 // Route guards
 const ProtectedPharmacyRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -78,6 +79,8 @@ export const App: React.FC = () => {
               {/* Authentication Routes */}
               <Route path="/login" element={<LoginPage />} />
               <Route path="/register" element={<RegisterPage />} />
+              <Route path="/admin/setup" element={<AdminSetupPage />} />
+              <Route path="/setup-admin" element={<AdminSetupPage />} />
               <Route path="/pending-verification" element={<PendingVerificationPage />} />
 
               {/* Protected Role Dashboards */}

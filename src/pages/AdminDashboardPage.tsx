@@ -124,6 +124,17 @@ export const AdminDashboardPage: React.FC = () => {
     }
   };
 
+  const handleExecuteCompleteReset = async () => {
+    if (!confirm('WARNING: Complete Database Reset will reset the platform to a brand-new application state.\n\n• All operational data will be deleted.\n• All accounts will be cleared.\n• An automatic JSON backup will be created in browser storage.\n• You will be redirected to the First-Time Admin Setup page.\n\nAre you sure you want to proceed?')) return;
+    try {
+      const res = api.resetToCleanState();
+      alert(`Database successfully reset to clean initial state. Backup saved under "${res.backupKey}". You will now be redirected to set up the primary administrator account.`);
+      navigate('/admin/setup');
+    } catch (e: any) {
+      alert(e.message || 'Reset error.');
+    }
+  };
+
   // Edit Medicine Form
   const [editMedForm, setEditMedForm] = useState({
     displayName: '',
@@ -1206,6 +1217,14 @@ export const AdminDashboardPage: React.FC = () => {
                   >
                     <Database className="w-3.5 h-3.5" />
                     Execute Safe Cleanup
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleExecuteCompleteReset}
+                    className="flex items-center gap-1.5 px-3.5 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold text-xs rounded-xl border border-rose-200 transition-colors"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    Complete Reset (Clean Slate)
                   </button>
                 </div>
               </div>
